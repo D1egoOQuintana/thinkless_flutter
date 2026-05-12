@@ -10,445 +10,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+part 'app/theme/app_colors.dart';
+part 'app/navigation/app_view.dart';
+part 'features/tasks/domain/task_item.dart';
+part 'features/tasks/data/task_store.dart';
+part 'features/settings/domain/no_molestar_config.dart';
+part 'features/assistant/data/groq_service.dart';
+
 void main() {
   runApp(const ThinkLessApp());
-}
-
-class AppColors {
-  static const primary = Color(0xFF1976D2);
-  static const primaryContainer = Color(0xFFE3F2FD);
-  static const onPrimary = Color(0xFFFFFFFF);
-  static const surface = Color(0xFFFDF8FF);
-  static const background = Color(0xFFFDF8FF);
-  static const onSurface = Color(0xFF1C1B20);
-  static const secondary = Color(0xFF42A5F5);
-  static const surfaceLowest = Color(0xFFFFFFFF);
-  static const surfaceContainer = Color(0xFFF1ECF4);
-  static const surfaceHigh = Color(0xFFEBE6EE);
-  static const surfaceHighest = Color(0xFFE6E1E9);
-  static const surfaceVariant = Color(0xFFE6E1E9);
-  static const onSurfaceVariant = Color(0xFF484551);
-  static const outlineVariant = Color(0xFFC9C4D2);
-  static const error = Color(0xFFBA1A1A);
-  static const errorContainer = Color(0xFFFFDAD6);
-  static const onErrorContainer = Color(0xFF93000A);
-  static const mint = Color(0xFF00C9A7);
-  static const pink = Color(0xFFFF4D6D);
-  static const yellow = Color(0xFFFFD166);
-  static const blue = Color(0xFF118AB2);
-}
-
-enum AppView {
-  onboarding,
-  home,
-  calendar,
-  focus,
-  matrix,
-  alerts,
-  profile,
-  voice,
-  scanner,
-  detail,
-}
-
-class TaskItem {
-  TaskItem({
-    required this.id,
-    required this.titulo,
-    required this.materia,
-    required this.fecha,
-    required this.hora,
-    required this.prioridad,
-    required this.tipo,
-    required this.completada,
-    required this.fechaCreacion,
-    this.notas = '',
-  });
-
-  final String id;
-  final String titulo;
-  final String materia;
-  final String fecha;
-  final String hora;
-  final String prioridad;
-  final String tipo;
-  final bool completada;
-  final DateTime fechaCreacion;
-  final String notas;
-
-  TaskItem copyWith({
-    String? id,
-    String? titulo,
-    String? materia,
-    String? fecha,
-    String? hora,
-    String? prioridad,
-    String? tipo,
-    bool? completada,
-    DateTime? fechaCreacion,
-    String? notas,
-  }) {
-    return TaskItem(
-      id: id ?? this.id,
-      titulo: titulo ?? this.titulo,
-      materia: materia ?? this.materia,
-      fecha: fecha ?? this.fecha,
-      hora: hora ?? this.hora,
-      prioridad: prioridad ?? this.prioridad,
-      tipo: tipo ?? this.tipo,
-      completada: completada ?? this.completada,
-      fechaCreacion: fechaCreacion ?? this.fechaCreacion,
-      notas: notas ?? this.notas,
-    );
-  }
-
-  factory TaskItem.fromJson(Map<String, dynamic> json) {
-    return TaskItem(
-      id:
-          json['id']?.toString() ??
-          DateTime.now().microsecondsSinceEpoch.toString(),
-      titulo: json['titulo']?.toString().trim().isNotEmpty == true
-          ? json['titulo'].toString()
-          : 'Tarea sin titulo',
-      materia: json['materia']?.toString().trim().isNotEmpty == true
-          ? json['materia'].toString()
-          : 'General',
-      fecha: json['fecha']?.toString().trim().isNotEmpty == true
-          ? json['fecha'].toString()
-          : 'Sin fecha',
-      hora: json['hora']?.toString().trim().isNotEmpty == true
-          ? json['hora'].toString()
-          : 'Sin hora',
-      prioridad: _normalizePriority(json['prioridad']?.toString()),
-      tipo: json['tipo']?.toString().trim().isNotEmpty == true
-          ? json['tipo'].toString()
-          : 'otro',
-      completada: json['completada'] == true,
-      fechaCreacion:
-          DateTime.tryParse(json['fechaCreacion']?.toString() ?? '') ??
-          DateTime.now(),
-      notas: json['notas']?.toString() ?? '',
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'titulo': titulo,
-    'materia': materia,
-    'fecha': fecha,
-    'hora': hora,
-    'prioridad': prioridad,
-    'tipo': tipo,
-    'completada': completada,
-    'fechaCreacion': fechaCreacion.toIso8601String(),
-    'notas': notas,
-  };
-
-  static String _normalizePriority(String? value) {
-    final normalized = (value ?? 'media').toLowerCase().trim();
-    if (normalized.contains('alta')) return 'alta';
-    if (normalized.contains('baja')) return 'baja';
-    return 'media';
-  }
-}
-
-class TaskStore {
-  static const _tasksKey = 'tareas';
-  static const _legacyTasksKey = 'thinkless_tasks';
-  static const _seenKey = 'thinkless_seen_onboarding';
-  static const _alertsKey = 'thinkless_alerts';
-  static const _dndKey = 'modo_no_molestar_config';
-
-  static Future<List<TaskItem>> loadTasks() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_tasksKey) ?? prefs.getString(_legacyTasksKey);
-    if (raw == null || raw.isEmpty) return [];
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    final tasks = decoded
-        .map(
-          (item) => TaskItem.fromJson(Map<String, dynamic>.from(item as Map)),
-        )
-        .toList();
-    await saveTasks(tasks);
-    return tasks;
-  }
-
-  static Future<void> saveTasks(List<TaskItem> tasks) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _tasksKey,
-      jsonEncode(tasks.map((task) => task.toJson()).toList()),
-    );
-  }
-
-  static Future<bool> hasSeenOnboarding() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_seenKey) ?? false;
-  }
-
-  static Future<void> setSeenOnboarding() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_seenKey, true);
-  }
-
-  static Future<Map<String, dynamic>> loadAlerts() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_alertsKey);
-    if (raw == null) {
-      return {
-        'urgent': true,
-        'daily': true,
-        'breaks': false,
-        'intensity': 'Insistente',
-      };
-    }
-    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
-  }
-
-  static Future<void> saveAlerts(Map<String, dynamic> state) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_alertsKey, jsonEncode(state));
-  }
-
-  static Future<NoMolestarConfig> loadNoMolestar() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_dndKey);
-    if (raw == null || raw.isEmpty) return NoMolestarConfig.defaults();
-    return NoMolestarConfig.fromJson(
-      Map<String, dynamic>.from(jsonDecode(raw)),
-    );
-  }
-
-  static Future<void> saveNoMolestar(NoMolestarConfig config) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_dndKey, jsonEncode(config.toJson()));
-  }
-}
-
-class NoMolestarConfig {
-  const NoMolestarConfig({
-    required this.activo,
-    required this.horaInicio,
-    required this.horaFin,
-    required this.dias,
-  });
-
-  final bool activo;
-  final String horaInicio;
-  final String horaFin;
-  final List<String> dias;
-
-  factory NoMolestarConfig.defaults() => const NoMolestarConfig(
-    activo: false,
-    horaInicio: '08:00',
-    horaFin: '13:00',
-    dias: ['LUN', 'MAR', 'MIE', 'JUE', 'VIE'],
-  );
-
-  factory NoMolestarConfig.fromJson(Map<String, dynamic> json) {
-    return NoMolestarConfig(
-      activo: json['activo'] == true,
-      horaInicio: json['horaInicio']?.toString() ?? '08:00',
-      horaFin: json['horaFin']?.toString() ?? '13:00',
-      dias:
-          (json['dias'] as List<dynamic>? ??
-                  ['LUN', 'MAR', 'MIE', 'JUE', 'VIE'])
-              .map((day) => day.toString())
-              .toList(),
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    'activo': activo,
-    'horaInicio': horaInicio,
-    'horaFin': horaFin,
-    'dias': dias,
-  };
-
-  NoMolestarConfig copyWith({
-    bool? activo,
-    String? horaInicio,
-    String? horaFin,
-    List<String>? dias,
-  }) {
-    return NoMolestarConfig(
-      activo: activo ?? this.activo,
-      horaInicio: horaInicio ?? this.horaInicio,
-      horaFin: horaFin ?? this.horaFin,
-      dias: dias ?? this.dias,
-    );
-  }
-}
-
-bool isNoMolestarActivo(NoMolestarConfig config, [DateTime? moment]) {
-  if (!config.activo) return false;
-  final now = moment ?? DateTime.now();
-  const dayCodes = ['LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB', 'DOM'];
-  final today = dayCodes[now.weekday - 1];
-  if (!config.dias.contains(today)) return false;
-  final currentMinutes = now.hour * 60 + now.minute;
-  final start = _minutesFromClock(config.horaInicio);
-  final end = _minutesFromClock(config.horaFin);
-  if (start <= end) {
-    return currentMinutes >= start && currentMinutes <= end;
-  }
-  return currentMinutes >= start || currentMinutes <= end;
-}
-
-int _minutesFromClock(String value) {
-  final parts = value.split(':');
-  final hour = int.tryParse(parts.first) ?? 0;
-  final minute = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
-  return hour * 60 + minute;
-}
-
-class GroqService {
-  static const _apiKey = String.fromEnvironment('GROQ_API_KEY');
-  static const _endpoint = 'https://api.groq.com/openai/v1/chat/completions';
-
-  static bool get configured => _apiKey.trim().isNotEmpty;
-
-  static Future<TaskItem> extractTaskFromText(String text) async {
-    if (!configured) {
-      throw Exception(
-        'Falta GROQ_API_KEY. Ejecuta con --dart-define=GROQ_API_KEY=tu_clave.',
-      );
-    }
-
-    final response = await http.post(
-      Uri.parse(_endpoint),
-      headers: {
-        'Authorization': 'Bearer $_apiKey',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'model': 'llama-3.3-70b-versatile',
-        'messages': [
-          {
-            'role': 'user',
-            'content':
-                '''
-Extrae la informacion de esta tarea universitaria y responde SOLO con JSON valido, sin texto adicional. Hoy es ${DateTime.now().toString().split(' ')[0]}.
-Texto: "$text"
-
-Formato:
-{
-  "titulo": "nombre de la tarea",
-  "materia": "nombre de la materia o curso",
-  "fecha": "fecha exacta en formato YYYY-MM-DD (calculala basandote en la fecha de hoy si se mencionan dias relativos) o 'Sin fecha'",
-  "hora": "hora en formato HH:MM o Sin hora",
-  "prioridad": "alta | media | baja",
-  "tipo": "examen | tarea | laboratorio | proyecto | lectura | otro"
-}
-''',
-          },
-        ],
-        'max_tokens': 240,
-        'temperature': 0.1,
-        'response_format': {'type': 'json_object'},
-      }),
-    );
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Groq texto ${response.statusCode}: ${response.body}');
-    }
-    final content = _messageContent(response.body);
-    final data = Map<String, dynamic>.from(
-      jsonDecode(_cleanJson(content)) as Map,
-    );
-    return TaskItem.fromJson({
-      ...data,
-      'id': _newId(),
-      'completada': false,
-      'fechaCreacion': DateTime.now().toIso8601String(),
-      'notas': 'Creada desde voz: "$text"',
-    });
-  }
-
-  static Future<List<TaskItem>> extractTasksFromImage(Uint8List bytes) async {
-    if (!configured) {
-      throw Exception(
-        'Falta GROQ_API_KEY. Ejecuta con --dart-define=GROQ_API_KEY=tu_clave.',
-      );
-    }
-    final base64Image = base64Encode(bytes);
-    final response = await http.post(
-      Uri.parse(_endpoint),
-      headers: {
-        'Authorization': 'Bearer $_apiKey',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'model': 'meta-llama/llama-4-scout-17b-16e-instruct',
-        'messages': [
-          {
-            'role': 'user',
-            'content': [
-              {
-                'type': 'text',
-                'text': '''
-Analiza esta imagen como apuntes universitarios, cuaderno, captura o pizarra. Extrae tareas accionables. Hoy es ${DateTime.now().toString().split(' ')[0]}.
-Responde SOLO JSON valido:
-{
-  "tareas": [
-    {
-      "titulo": "nombre de la tarea",
-      "materia": "curso o materia",
-      "fecha": "fecha exacta en formato YYYY-MM-DD (calculala basandote en hoy si es relativo) o 'Sin fecha'",
-      "hora": "HH:MM o Sin hora",
-      "prioridad": "alta | media | baja",
-      "tipo": "examen | tarea | laboratorio | proyecto | lectura | otro"
-    }
-  ]
-}
-Si no hay texto claro, infiere hasta 3 tareas utiles desde el contexto visual.
-''',
-              },
-              {
-                'type': 'image_url',
-                'image_url': {'url': 'data:image/jpeg;base64,$base64Image'},
-              },
-            ],
-          },
-        ],
-        'max_tokens': 700,
-        'temperature': 0.1,
-        'response_format': {'type': 'json_object'},
-      }),
-    );
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Groq vision ${response.statusCode}: ${response.body}');
-    }
-    final content = _messageContent(response.body);
-    final data = Map<String, dynamic>.from(
-      jsonDecode(_cleanJson(content)) as Map,
-    );
-    final tasks = (data['tareas'] as List<dynamic>? ?? [])
-        .map(
-          (item) => TaskItem.fromJson({
-            ...Map<String, dynamic>.from(item as Map),
-            'id': _newId(),
-            'completada': false,
-            'fechaCreacion': DateTime.now().toIso8601String(),
-            'notas': 'Detectada desde escaner IA.',
-          }),
-        )
-        .toList();
-    if (tasks.isEmpty) throw Exception('La IA no detecto tareas en la imagen.');
-    return tasks;
-  }
-
-  static String _messageContent(String body) {
-    final json = jsonDecode(body) as Map<String, dynamic>;
-    return json['choices'][0]['message']['content'].toString();
-  }
-
-  static String _cleanJson(String input) {
-    return input.replaceAll('```json', '').replaceAll('```', '').trim();
-  }
-
-  static String _newId() => DateTime.now().microsecondsSinceEpoch.toString();
 }
 
 class ThinkLessApp extends StatefulWidget {
@@ -1971,86 +1541,86 @@ class _WeekCalendar extends StatelessWidget {
           child: AppCard(
             child: Column(
               children: [
-              Row(
-                children: days
-                    .map(
-                      (day) => Expanded(
-                        child: Center(
-                          child: Text(
-                            '${_shortDay(day.weekday)} ${day.day}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: _sameDay(day, DateTime.now())
-                                  ? AppColors.primary
-                                  : AppColors.secondary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 10),
-              ...List.generate(15, (hourIndex) {
-                final hour = 8 + hourIndex;
-                return SizedBox(
-                  height: 64,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 44,
-                        child: Text(
-                          '${hour.toString().padLeft(2, '0')}:00',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.secondary,
-                          ),
-                        ),
-                      ),
-                      ...days.map((day) {
-                        final blocks = tasks
-                            .where(
-                              (task) =>
-                                  _sameDay(_taskDate(task), day) &&
-                                  _taskHour(task) == hour,
-                            )
-                            .toList();
-                        return Expanded(
-                          child: Container(
-                            margin: const EdgeInsets.all(2),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: AppColors.outlineVariant.withValues(
-                                  alpha: 0.35,
-                                ),
+                Row(
+                  children: days
+                      .map(
+                        (day) => Expanded(
+                          child: Center(
+                            child: Text(
+                              '${_shortDay(day.weekday)} ${day.day}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: _sameDay(day, DateTime.now())
+                                    ? AppColors.primary
+                                    : AppColors.secondary,
                               ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              children: blocks
-                                  .map(
-                                    (task) => _CalendarBlock(
-                                      task: task,
-                                      onTap: () => onTaskTap(task),
-                                    ),
-                                  )
-                                  .toList(),
                             ),
                           ),
-                        );
-                      }),
-                    ],
-                  ),
-                );
-              }),
-            ],
+                        ),
+                      )
+                      .toList(),
+                ),
+                const SizedBox(height: 10),
+                ...List.generate(15, (hourIndex) {
+                  final hour = 8 + hourIndex;
+                  return SizedBox(
+                    height: 64,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 44,
+                          child: Text(
+                            '${hour.toString().padLeft(2, '0')}:00',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.secondary,
+                            ),
+                          ),
+                        ),
+                        ...days.map((day) {
+                          final blocks = tasks
+                              .where(
+                                (task) =>
+                                    _sameDay(_taskDate(task), day) &&
+                                    _taskHour(task) == hour,
+                              )
+                              .toList();
+                          return Expanded(
+                            child: Container(
+                              margin: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: AppColors.outlineVariant.withValues(
+                                    alpha: 0.35,
+                                  ),
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                children: blocks
+                                    .map(
+                                      (task) => _CalendarBlock(
+                                        task: task,
+                                        onTap: () => onTaskTap(task),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 class _DayCalendar extends StatelessWidget {

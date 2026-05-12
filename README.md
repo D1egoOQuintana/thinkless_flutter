@@ -1,17 +1,34 @@
-# thinkless_flutter
+# ThinkLess Flutter
 
-A new Flutter project.
+Aplicacion Flutter para gestion de tareas academicas con:
 
-## Getting Started
+- organizacion por prioridad y calendario
+- entrada por voz con IA
+- escaneo de tareas desde imagen
+- modo no molestar y alertas
 
-This project is a starting point for a Flutter application.
+## Arquitectura actual
 
-A few resources to get you started if this is your first Flutter project:
+Se separo la base del proyecto en capas y modulos para evitar el archivo monolitico:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+| Capa | Ubicacion | Responsabilidad |
+|---|---|---|
+| `app` | `lib/app/` | Configuracion visual y navegacion base |
+| `features/*/domain` | `lib/features/**/domain/` | Entidades y reglas de negocio |
+| `features/*/data` | `lib/features/**/data/` | Persistencia local y servicios externos |
+| `main` | `lib/main.dart` | Punto de entrada y composicion principal |
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Estructura principal
+
+```text
+lib/
+  main.dart
+  app/
+    navigation/app_view.dart
+    theme/app_colors.dart
+  features/
+    assistant/data/groq_service.dart
+    settings/domain/no_molestar_config.dart
+    tasks/domain/task_item.dart
+    tasks/data/task_store.dart
+```
