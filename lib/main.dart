@@ -1383,8 +1383,9 @@ class VoiceScreen extends StatefulWidget {
   State<VoiceScreen> createState() => _VoiceScreenState();
 }
 
-// Máquina de estados: idle | requesting | listening | busy | reconnecting | processing | result | error
-class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
+// Estados: idle | requesting | listening | busy | reconnecting | processing | result | error | meetingMode
+class _VoiceScreenState extends State<VoiceScreen>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final SpeechToText _speech = SpeechToText();
 
   String _status = 'idle';
@@ -1392,16 +1393,36 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
   String _errorMsg = '';
   TaskItem? _result;
 
+  // Meeting mode
+  bool _meetingMode = false;
+  final ValueNotifier<bool> _isHolding = ValueNotifier(false);
+  Timer? _pttTimeout;
+  static const Duration _pttMaxDuration = Duration(seconds: 5);
+  int _busyRetryCount = 0;
+  static const int _maxBusyBeforeMeeting = 2;
+
+  // Normal retry
   Timer? _retryTimer;
   int _retryCount = 0;
   int _retrySecondsLeft = 0;
   Timer? _retryCountdownTimer;
-  static const int _maxRetries = 6;
+  static const int _maxRetries = 4;
+
+  // Orb pulse animation (solo activo durante PTT hold)
+  late AnimationController _orbController;
+  late Animation<double> _orbPulse;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _orbController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _orbPulse = Tween<double>(begin: 1.0, end: 1.13).animate(
+      CurvedAnimation(parent: _orbController, curve: Curves.easeInOut),
+    );
   }
 
   @override
@@ -1409,6 +1430,9 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _retryTimer?.cancel();
     _retryCountdownTimer?.cancel();
+    _pttTimeout?.cancel();
+    _isHolding.dispose();
+    _orbController.dispose();
     _speech.stop();
     super.dispose();
   }
@@ -1416,8 +1440,10 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // App vuelve al frente — reintentar si estábamos esperando mic
-      if (_status == 'busy' || _status == 'reconnecting') {
+      if (_meetingMode) {
+        // En modo reunión: intentar silenciosamente si el mic se liberó
+        _tryExitMeetingMode();
+      } else if (_status == 'busy' || _status == 'reconnecting') {
         debugPrint('[VoiceScreen] App resumed, retrying mic...');
         _retryTimer?.cancel();
         _retryCountdownTimer?.cancel();
@@ -1428,66 +1454,181 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
         });
       }
     } else if (state == AppLifecycleState.paused) {
-      // App en segundo plano — pausar retries para no desperdiciar recursos
       _retryTimer?.cancel();
       _retryCountdownTimer?.cancel();
     }
   }
 
-  // Mapea códigos de error internos del engine a mensajes amigables
+  // ─── Error helpers ──────────────────────────────────────────────────────────
+
   String _mapError(String errorMsg) {
     final e = errorMsg.toLowerCase();
     if (e.contains('audio') || e.contains('busy') || e.contains('7')) {
-      return 'El micrófono está siendo usado por otra app (Meet, Zoom, Discord). Espera o ciérrala.';
+      return 'Micrófono ocupado por otra app (Meet, Zoom, Discord).';
     }
     if (e.contains('permission') || e.contains('denied')) {
-      return 'Permiso de micrófono denegado. Ve a Configuración > Permisos > Micrófono.';
+      return 'Permiso denegado. Ve a Configuración › Permisos › Micrófono.';
     }
     if (e.contains('network') || e.contains('timeout')) {
-      return 'Sin conexión a internet. Verifica tu red y vuelve a intentar.';
+      return 'Sin internet. Verifica tu conexión.';
     }
     if (e.contains('no_match') || e.contains('speech_timeout')) {
       return 'No se detectó voz. Habla más cerca del micrófono.';
-    }
-    if (e.contains('client') || e.contains('recognizer')) {
-      return 'El motor de reconocimiento falló. Reintentando...';
     }
     return 'Error de audio: $errorMsg';
   }
 
   bool _isMicBusy(String errorMsg) {
     final e = errorMsg.toLowerCase();
-    // error_audio (código 3) = mic ocupado por otra app en Android
     return e.contains('audio') || e.contains('busy') ||
         e.contains('error_audio') || e == '3' || e.contains('7');
   }
 
   bool _isRecoverable(String errorMsg) {
     final e = errorMsg.toLowerCase();
-    // Permanentes: permiso denegado
     return !e.contains('permission') && !e.contains('denied');
   }
 
+  // ─── Meeting mode ────────────────────────────────────────────────────────────
+
+  void _enterMeetingMode() {
+    debugPrint('[VoiceScreen] → Entering meeting mode');
+    _retryTimer?.cancel();
+    _retryCountdownTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _meetingMode = true;
+        _status = 'meetingMode';
+        _errorMsg = '';
+      });
+    }
+  }
+
+  void _tryExitMeetingMode() {
+    debugPrint('[VoiceScreen] → Trying to exit meeting mode...');
+    _busyRetryCount = 0;
+    _retryCount = 0;
+    if (mounted) setState(() { _meetingMode = false; });
+    _listen();
+  }
+
+  // ─── PTT (Push-to-Talk) ─────────────────────────────────────────────────────
+
+  void _onHoldStart() {
+    if (_status == 'processing') return;
+    _isHolding.value = true;
+    _orbController.repeat(reverse: true);
+    _startPttCapture();
+    // Seguridad: auto-stop tras duración máxima
+    _pttTimeout?.cancel();
+    _pttTimeout = Timer(_pttMaxDuration, () {
+      if (_isHolding.value) _onHoldEnd();
+    });
+  }
+
+  void _onHoldEnd() {
+    if (!_isHolding.value) return;
+    _isHolding.value = false;
+    _pttTimeout?.cancel();
+    _orbController.animateBack(0, duration: const Duration(milliseconds: 250));
+    _processPtt();
+  }
+
+  Future<void> _startPttCapture() async {
+    if (!mounted) return;
+    setState(() { _status = 'listening'; _transcript = ''; _errorMsg = ''; });
+
+    final available = await _speech.initialize(
+      onStatus: (s) => debugPrint('[PTT] status: $s'),
+      onError: (error) {
+        if (!mounted) return;
+        debugPrint('[PTT] error: ${error.errorMsg}');
+        if (_isMicBusy(error.errorMsg)) {
+          _isHolding.value = false;
+          _pttTimeout?.cancel();
+          _orbController.stop();
+          if (mounted) {
+            setState(() {
+              _status = 'meetingMode';
+              _errorMsg = 'Micrófono aún ocupado. Inténtalo en un momento.';
+            });
+          }
+        }
+      },
+    );
+
+    if (!available || !mounted) {
+      _isHolding.value = false;
+      _orbController.stop();
+      return;
+    }
+
+    await _speech.listen(
+      localeId: 'es_419',
+      listenOptions: SpeechListenOptions(
+        partialResults: true,
+        listenMode: ListenMode.dictation,
+        cancelOnError: false,
+      ),
+      onResult: (result) {
+        if (!mounted) return;
+        setState(() => _transcript = result.recognizedWords);
+      },
+    );
+  }
+
+  Future<void> _processPtt() async {
+    // Liberar micrófono inmediatamente al soltar
+    await _speech.stop();
+    if (!mounted || _status == 'processing') return;
+
+    final text = _transcript.trim();
+    if (text.isEmpty) {
+      setState(() { _status = 'meetingMode'; _errorMsg = ''; });
+      return;
+    }
+
+    setState(() => _status = 'processing');
+    try {
+      final task = await GroqService.extractTaskFromText(text);
+      if (!mounted) return;
+      setState(() { _status = 'result'; _result = task; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _status = _meetingMode ? 'meetingMode' : 'error';
+        _errorMsg = e.toString();
+      });
+    }
+  }
+
+  // ─── Normal flow ─────────────────────────────────────────────────────────────
+
   void _scheduleRetry({bool fromBusy = false}) {
+    if (fromBusy) {
+      _busyRetryCount++;
+      if (_busyRetryCount >= _maxBusyBeforeMeeting) {
+        _enterMeetingMode();
+        return;
+      }
+    }
+
     if (_retryCount >= _maxRetries) {
       if (mounted) {
         setState(() {
           _status = 'error';
           _errorMsg = fromBusy
-              ? 'El micrófono sigue ocupado. Cierra Meet, Zoom o Discord y vuelve a intentar.'
-              : 'No se pudo conectar el micrófono después de varios intentos.';
+              ? 'Micrófono sigue ocupado. Activa modo reunión.'
+              : 'No se pudo conectar el micrófono.';
         });
       }
       return;
     }
 
-    // Backoff exponencial: 2s, 4s, 8s, 16s, 32s (máx 32s)
     final delaySec = (2 * (1 << _retryCount.clamp(0, 4)));
     _retryCount++;
-
     if (mounted) setState(() { _status = 'reconnecting'; _retrySecondsLeft = delaySec; });
 
-    // Countdown visual
     _retryCountdownTimer?.cancel();
     _retryCountdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (!mounted) { t.cancel(); return; }
@@ -1501,16 +1642,17 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
         _startListening();
       }
     });
-
     debugPrint('[VoiceScreen] Retry #$_retryCount en ${delaySec}s');
   }
 
   Future<void> _listen() async {
     _retryCount = 0;
+    _busyRetryCount = 0;
     _retryTimer?.cancel();
     _retryCountdownTimer?.cancel();
     if (mounted) {
       setState(() {
+        _meetingMode = false;
         _status = 'requesting';
         _errorMsg = '';
         _result = null;
@@ -1522,10 +1664,8 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
 
   Future<void> _startListening() async {
     if (!mounted) return;
-
     if (mounted) setState(() { _status = 'requesting'; _errorMsg = ''; });
 
-    // Siempre re-inicializar para limpiar estado del engine
     final available = await _speech.initialize(
       onStatus: (status) {
         if (!mounted) return;
@@ -1534,7 +1674,6 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
           if (_transcript.trim().isNotEmpty) {
             _process();
           } else {
-            // El engine terminó sin captar nada — reintentar silenciosamente
             _scheduleRetry();
           }
         }
@@ -1543,14 +1682,12 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
         if (!mounted) return;
         final errStr = error.errorMsg;
         debugPrint('[VoiceScreen] error: $errStr (permanent: ${error.permanent})');
-
         if (_isMicBusy(errStr)) {
           if (mounted) setState(() => _status = 'busy');
           _scheduleRetry(fromBusy: true);
         } else if (error.permanent || !_isRecoverable(errStr)) {
           if (mounted) setState(() { _status = 'error'; _errorMsg = _mapError(errStr); });
         } else {
-          // Error transitorio — reintentar
           _scheduleRetry();
         }
       },
@@ -1573,7 +1710,7 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
       listenOptions: SpeechListenOptions(
         partialResults: true,
         listenMode: ListenMode.confirmation,
-        cancelOnError: false, // No cancelar en error — permite retry sin reinicializar
+        cancelOnError: false,
       ),
       onResult: (SpeechRecognitionResult result) {
         if (!mounted) return;
@@ -1589,38 +1726,27 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
     if (_status == 'processing') return;
     _retryTimer?.cancel();
     _retryCountdownTimer?.cancel();
-
     await _speech.stop();
     final text = _transcript.trim();
-
     if (text.isEmpty) {
-      setState(() {
-        _status = 'error';
-        _errorMsg = 'No se detectó texto. Habla más cerca del micrófono.';
-      });
+      setState(() { _status = 'error'; _errorMsg = 'No se detectó texto.'; });
       return;
     }
-
     setState(() => _status = 'processing');
     try {
       final task = await GroqService.extractTaskFromText(text);
       if (!mounted) return;
-      setState(() {
-        _status = 'result';
-        _result = task;
-        _retryCount = 0;
-      });
+      setState(() { _status = 'result'; _result = task; _retryCount = 0; });
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _status = 'error';
-        _errorMsg = error.toString();
-      });
+      setState(() { _status = 'error'; _errorMsg = error.toString(); });
     }
   }
 
-  // Colores semánticos por estado
+  // ─── UI helpers ──────────────────────────────────────────────────────────────
+
   Color get _statusColor {
+    if (_meetingMode || _status == 'meetingMode') return const Color(0xFF3B82F6);
     return switch (_status) {
       'listening' => AppColors.mint,
       'busy' || 'reconnecting' => const Color(0xFFF59E0B),
@@ -1631,6 +1757,7 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
   }
 
   IconData get _statusIcon {
+    if (_meetingMode || _status == 'meetingMode') return Icons.videocam_rounded;
     return switch (_status) {
       'listening' => Icons.graphic_eq_rounded,
       'requesting' => Icons.settings_voice_rounded,
@@ -1643,9 +1770,11 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
     };
   }
 
+  // ─── Build ───────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final isActive = _status == 'listening';
+    final inMeeting = _meetingMode || _status == 'meetingMode';
     final color = _statusColor;
 
     return Scaffold(
@@ -1658,139 +1787,485 @@ class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: IconButton(
-                      onPressed: widget.onClose,
-                      icon: const Icon(Icons.close),
-                    ),
+                  // Header
+                  Row(
+                    children: [
+                      if (inMeeting)
+                        const _MeetingModeBadge()
+                      else
+                        const Spacer(),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: widget.onClose,
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
                   ),
+
                   Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Orb animado del micrófono
-                        AnimatedContainer(
-                          duration: AppMotion.slow,
-                          curve: AppMotion.standard,
-                          width: isActive ? 168 : 140,
-                          height: isActive ? 168 : 140,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: RadialGradient(
-                              colors: [
-                                color.withValues(alpha: isActive ? 0.22 : 0.12),
-                                AppColors.surfaceContainer,
-                              ],
-                            ),
-                            border: Border.all(
-                              color: color.withValues(alpha: isActive ? 0.75 : 0.35),
-                              width: isActive ? 2 : 1,
-                            ),
-                            boxShadow: isActive
-                                ? [BoxShadow(color: color.withValues(alpha: 0.35), blurRadius: 32, spreadRadius: 2)]
-                                : AppShadow.brand(opacity: 0.18),
-                          ),
-                          child: _status == 'requesting'
-                              ? const Padding(
-                                  padding: EdgeInsets.all(44),
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : Icon(_statusIcon, size: 56, color: color),
-                        ),
-                        const SizedBox(height: AppSpacing.xxl),
-                        Text(
-                          'Voz e IA activadas',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                        if (isNoMolestarActivo(widget.noMolestar)) ...[
-                          const SizedBox(height: AppSpacing.sm + 2),
-                          InfoChip(icon: Icons.notifications_off_rounded, text: 'IA en modo silencioso'),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(height: 24),
+                          if (inMeeting)
+                            _buildMeetingMode(color)
+                          else
+                            _buildNormalMode(color),
                         ],
-                        const SizedBox(height: 18),
-
-                        // Tarjetas de estado
-                        if (_status == 'idle') _VoiceTips(),
-                        if (_status == 'requesting')
-                          const _StatusCard(
-                            icon: Icons.settings_voice_rounded,
-                            title: 'Iniciando micrófono...',
-                            body: 'Preparando el motor de reconocimiento de voz.',
-                          ),
-                        if (isActive)
-                          _StatusCard(
-                            icon: Icons.mic,
-                            title: 'Escuchando...',
-                            body: _transcript.isEmpty
-                                ? 'Di tu tarea completa con fecha, materia y prioridad.'
-                                : _transcript,
-                          ),
-                        if (_status == 'busy')
-                          _StatusCard(
-                            icon: Icons.mic_off_rounded,
-                            title: 'Micrófono ocupado',
-                            body: 'Otra app (Meet, Zoom, Discord) está usando el micrófono. Reintentando automáticamente...',
-                            color: const Color(0xFFF59E0B),
-                          ),
-                        if (_status == 'reconnecting')
-                          _StatusCard(
-                            icon: Icons.refresh_rounded,
-                            title: 'Reconectando audio...',
-                            body: 'Reintento #$_retryCount en $_retrySecondsLeft s. '
-                                'Puedes cerrar la otra app para liberar el micrófono.',
-                            color: const Color(0xFFF59E0B),
-                          ),
-                        if (_status == 'processing')
-                          const _StatusCard(
-                            icon: Icons.auto_awesome,
-                            title: 'Procesando con IA...',
-                            body: 'Groq está estructurando tu tarea.',
-                          ),
-                        if (_status == 'error')
-                          _StatusCard(
-                            icon: Icons.error_outline,
-                            title: 'Error',
-                            body: _errorMsg,
-                            danger: true,
-                          ),
-                        if (_status == 'result' && _result != null)
-                          TaskPreview(
-                            task: _result!,
-                            onAdd: () => widget.onAdd(_result!),
-                          ),
-                      ],
+                      ),
                     ),
                   ),
 
-                  // Botón principal — deshabilitado durante requesting/reconnecting
-                  PrimaryButton(
-                    label: switch (_status) {
-                      'listening' => 'Procesar ahora',
-                      'processing' => 'Procesando...',
-                      'requesting' => 'Iniciando...',
-                      'reconnecting' => 'Reintentar ahora',
-                      'result' => 'Hablar otra vez',
-                      _ => 'Iniciar captura',
-                    },
-                    icon: switch (_status) {
-                      'listening' => Icons.check,
-                      'processing' => Icons.hourglass_top,
-                      'reconnecting' => Icons.refresh,
-                      _ => Icons.play_arrow,
-                    },
-                    onTap: switch (_status) {
-                      'processing' || 'requesting' => null,
-                      'listening' => _process,
-                      'reconnecting' => _listen,
-                      _ => _listen,
-                    },
-                  ),
+                  // Footer buttons
+                  if (!inMeeting) ...[
+                    PrimaryButton(
+                      label: switch (_status) {
+                        'listening' => 'Procesar ahora',
+                        'processing' => 'Procesando...',
+                        'requesting' => 'Iniciando...',
+                        'reconnecting' => 'Reintentar ahora',
+                        'result' => 'Hablar otra vez',
+                        _ => 'Iniciar captura',
+                      },
+                      icon: switch (_status) {
+                        'listening' => Icons.check,
+                        'processing' => Icons.hourglass_top,
+                        'reconnecting' => Icons.refresh,
+                        _ => Icons.play_arrow,
+                      },
+                      onTap: switch (_status) {
+                        'processing' || 'requesting' => null,
+                        'listening' => _process,
+                        'reconnecting' => _listen,
+                        _ => _listen,
+                      },
+                    ),
+                  ] else ...[
+                    if (_status == 'result')
+                      PrimaryButton(
+                        label: 'Hablar de nuevo',
+                        icon: Icons.mic_rounded,
+                        onTap: () => setState(() {
+                          _status = 'meetingMode';
+                          _result = null;
+                          _transcript = '';
+                        }),
+                      ),
+                    const SizedBox(height: 10),
+                    GestureDetector(
+                      onTap: _tryExitMeetingMode,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.wifi_tethering_rounded, size: 15, color: AppColors.secondary),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Intentar modo normal',
+                            style: GoogleFonts.inter(fontSize: 13, color: AppColors.secondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildNormalMode(Color color) {
+    final isActive = _status == 'listening';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedContainer(
+          duration: AppMotion.slow,
+          curve: AppMotion.standard,
+          width: isActive ? 168 : 140,
+          height: isActive ? 168 : 140,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [
+                color.withValues(alpha: isActive ? 0.22 : 0.12),
+                AppColors.surfaceContainer,
+              ],
+            ),
+            border: Border.all(
+              color: color.withValues(alpha: isActive ? 0.75 : 0.35),
+              width: isActive ? 2 : 1,
+            ),
+            boxShadow: isActive
+                ? [BoxShadow(color: color.withValues(alpha: 0.35), blurRadius: 32, spreadRadius: 2)]
+                : AppShadow.brand(opacity: 0.18),
+          ),
+          child: _status == 'requesting'
+              ? const Padding(padding: EdgeInsets.all(44), child: CircularProgressIndicator(strokeWidth: 2))
+              : Icon(_statusIcon, size: 56, color: color),
+        ),
+        const SizedBox(height: AppSpacing.xxl),
+        Text('Voz e IA activadas', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium),
+        if (isNoMolestarActivo(widget.noMolestar)) ...[
+          const SizedBox(height: AppSpacing.sm + 2),
+          InfoChip(icon: Icons.notifications_off_rounded, text: 'IA en modo silencioso'),
+        ],
+        const SizedBox(height: 18),
+        if (_status == 'idle') _VoiceTips(),
+        if (_status == 'requesting')
+          const _StatusCard(icon: Icons.settings_voice_rounded, title: 'Iniciando micrófono...', body: 'Preparando el motor de reconocimiento.'),
+        if (isActive)
+          _StatusCard(
+            icon: Icons.mic,
+            title: 'Escuchando...',
+            body: _transcript.isEmpty ? 'Di tu tarea con fecha, materia y prioridad.' : _transcript,
+          ),
+        if (_status == 'busy')
+          _StatusCard(
+            icon: Icons.mic_off_rounded,
+            title: 'Micrófono ocupado',
+            body: 'Meet/Zoom/Discord está usando el mic. Cambiando a Modo Reunión...',
+            color: const Color(0xFFF59E0B),
+          ),
+        if (_status == 'reconnecting')
+          _StatusCard(
+            icon: Icons.refresh_rounded,
+            title: 'Reconectando audio...',
+            body: 'Reintento #$_retryCount en $_retrySecondsLeft s.',
+            color: const Color(0xFFF59E0B),
+          ),
+        if (_status == 'processing')
+          const _StatusCard(icon: Icons.auto_awesome, title: 'Procesando con IA...', body: 'Groq está estructurando tu tarea.'),
+        if (_status == 'error')
+          _StatusCard(icon: Icons.error_outline, title: 'Error', body: _errorMsg, danger: true),
+        if (_status == 'result' && _result != null)
+          TaskPreview(task: _result!, onAdd: () => widget.onAdd(_result!)),
+      ],
+    );
+  }
+
+  Widget _buildMeetingMode(Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Orb con animación PTT
+        ValueListenableBuilder<bool>(
+          valueListenable: _isHolding,
+          builder: (_, holding, __) {
+            return AnimatedBuilder(
+              animation: _orbPulse,
+              builder: (_, __) {
+                final scale = holding ? _orbPulse.value : 1.0;
+                return Transform.scale(
+                  scale: scale,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: holding ? 152 : 128,
+                    height: holding ? 152 : 128,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          color.withValues(alpha: holding ? 0.28 : 0.10),
+                          AppColors.surfaceContainer,
+                        ],
+                      ),
+                      border: Border.all(
+                        color: color.withValues(alpha: holding ? 0.90 : 0.28),
+                        width: holding ? 2.5 : 1.5,
+                      ),
+                      boxShadow: holding
+                          ? [
+                              BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 44, spreadRadius: 4),
+                              BoxShadow(color: color.withValues(alpha: 0.20), blurRadius: 16),
+                            ]
+                          : null,
+                    ),
+                    child: _status == 'processing'
+                        ? const Padding(padding: EdgeInsets.all(38), child: CircularProgressIndicator(strokeWidth: 2))
+                        : Icon(
+                            holding ? Icons.graphic_eq_rounded : Icons.videocam_rounded,
+                            size: 48,
+                            color: color,
+                          ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+
+        const SizedBox(height: 16),
+
+        // Waveform — visible solo mientras escucha
+        ValueListenableBuilder<bool>(
+          valueListenable: _isHolding,
+          builder: (_, holding, __) {
+            return AnimatedOpacity(
+              opacity: holding ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 180),
+              child: _WaveformBars(color: color, active: holding),
+            );
+          },
+        ),
+
+        const SizedBox(height: 20),
+
+        // Transcript o hint
+        if (_status != 'result' && _status != 'processing') ...[
+          ValueListenableBuilder<bool>(
+            valueListenable: _isHolding,
+            builder: (_, holding, __) {
+              final text = holding
+                  ? (_transcript.isEmpty ? 'Escuchando...' : _transcript)
+                  : 'Micrófono ocupado por otra app.\nUsa el botón para capturar rápido.';
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: Text(
+                  text,
+                  key: ValueKey(holding),
+                  textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    height: 1.45,
+                    fontWeight: holding ? FontWeight.w500 : FontWeight.w400,
+                    color: holding ? AppColors.onSurface : AppColors.onSurfaceVariant,
+                  ),
+                ),
+              );
+            },
+          ),
+          if (_errorMsg.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              _errorMsg,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFF59E0B)),
+            ),
+          ],
+          const SizedBox(height: 36),
+          // Botón PTT grande
+          _PttButton(
+            isHolding: _isHolding,
+            onHoldStart: _onHoldStart,
+            onHoldEnd: _onHoldEnd,
+            color: color,
+          ),
+          const SizedBox(height: 32),
+        ],
+
+        if (_status == 'processing')
+          const _StatusCard(icon: Icons.auto_awesome, title: 'Procesando con IA...', body: 'Groq está estructurando tu tarea.'),
+
+        if (_status == 'result' && _result != null) ...[
+          TaskPreview(task: _result!, onAdd: () => widget.onAdd(_result!)),
+          const SizedBox(height: 16),
+        ],
+      ],
+    );
+  }
+}
+
+// ─── Badge "Modo Reunión" ─────────────────────────────────────────────────────
+
+class _MeetingModeBadge extends StatelessWidget {
+  const _MeetingModeBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF3B82F6).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6, height: 6,
+            decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF3B82F6)),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Modo Reunión',
+            style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: const Color(0xFF3B82F6)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Botón Push-to-Talk ───────────────────────────────────────────────────────
+
+class _PttButton extends StatelessWidget {
+  const _PttButton({
+    required this.isHolding,
+    required this.onHoldStart,
+    required this.onHoldEnd,
+    required this.color,
+  });
+
+  final ValueNotifier<bool> isHolding;
+  final VoidCallback onHoldStart;
+  final VoidCallback onHoldEnd;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ValueListenableBuilder<bool>(
+          valueListenable: isHolding,
+          builder: (_, holding, __) {
+            return GestureDetector(
+              // onTapDown/Up para respuesta inmediata (sin delay de long press)
+              onTapDown: (_) => onHoldStart(),
+              onTapUp: (_) => onHoldEnd(),
+              onTapCancel: onHoldEnd,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: holding ? 96 : 82,
+                height: holding ? 96 : 82,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: holding
+                        ? [color, color.withValues(alpha: 0.75)]
+                        : [color.withValues(alpha: 0.55), color.withValues(alpha: 0.75)],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withValues(alpha: holding ? 0.55 : 0.2),
+                      blurRadius: holding ? 28 : 10,
+                      spreadRadius: holding ? 2 : 0,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  holding ? Icons.stop_rounded : Icons.mic_rounded,
+                  color: Colors.white,
+                  size: 34,
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        ValueListenableBuilder<bool>(
+          valueListenable: isHolding,
+          builder: (_, holding, __) {
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              child: Text(
+                holding ? 'Suelta para procesar' : 'Mantén pulsado para hablar',
+                key: ValueKey(holding),
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: holding ? color : AppColors.onSurfaceVariant,
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Waveform bars animadas ───────────────────────────────────────────────────
+
+class _WaveformBars extends StatefulWidget {
+  const _WaveformBars({required this.color, required this.active});
+  final Color color;
+  final bool active;
+
+  @override
+  State<_WaveformBars> createState() => _WaveformBarsState();
+}
+
+class _WaveformBarsState extends State<_WaveformBars> with TickerProviderStateMixin {
+  static const _barCount = 5;
+  final List<AnimationController> _controllers = [];
+  final List<Animation<double>> _animations = [];
+
+  @override
+  void initState() {
+    super.initState();
+    final heights = [14.0, 28.0, 20.0, 32.0, 16.0];
+    for (int i = 0; i < _barCount; i++) {
+      final ctrl = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 380 + i * 70),
+      );
+      _controllers.add(ctrl);
+      _animations.add(
+        Tween<double>(begin: 4, end: heights[i]).animate(
+          CurvedAnimation(parent: ctrl, curve: Curves.easeInOut),
+        ),
+      );
+      if (widget.active) {
+        Future.delayed(Duration(milliseconds: i * 55), () {
+          if (mounted) ctrl.repeat(reverse: true);
+        });
+      }
+    }
+  }
+
+  @override
+  void didUpdateWidget(_WaveformBars old) {
+    super.didUpdateWidget(old);
+    if (widget.active == old.active) return;
+    for (int i = 0; i < _barCount; i++) {
+      if (widget.active) {
+        Future.delayed(Duration(milliseconds: i * 55), () {
+          if (mounted) _controllers[i].repeat(reverse: true);
+        });
+      } else {
+        _controllers[i].animateTo(0, duration: const Duration(milliseconds: 200));
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _controllers) { c.dispose(); }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: List.generate(_barCount * 2 - 1, (i) {
+          if (i.isOdd) return const SizedBox(width: 5);
+          final idx = i ~/ 2;
+          return AnimatedBuilder(
+            animation: _animations[idx],
+            builder: (_, __) => Container(
+              width: 4,
+              height: _animations[idx].value,
+              decoration: BoxDecoration(
+                color: widget.color.withValues(alpha: 0.85),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
