@@ -12,6 +12,8 @@ class TaskItem {
     required this.completada,
     required this.fechaCreacion,
     this.notas = '',
+    this.duracionMin,
+    this.etiquetas = const [],
   });
 
   final String id;
@@ -24,6 +26,8 @@ class TaskItem {
   final bool completada;
   final DateTime fechaCreacion;
   final String notas;
+  final int? duracionMin;
+  final List<String> etiquetas;
 
   TaskItem copyWith({
     String? id,
@@ -36,6 +40,9 @@ class TaskItem {
     bool? completada,
     DateTime? fechaCreacion,
     String? notas,
+    int? duracionMin,
+    bool clearDuracion = false,
+    List<String>? etiquetas,
   }) {
     return TaskItem(
       id: id ?? this.id,
@@ -48,6 +55,8 @@ class TaskItem {
       completada: completada ?? this.completada,
       fechaCreacion: fechaCreacion ?? this.fechaCreacion,
       notas: notas ?? this.notas,
+      duracionMin: clearDuracion ? null : (duracionMin ?? this.duracionMin),
+      etiquetas: etiquetas ?? this.etiquetas,
     );
   }
 
@@ -77,6 +86,12 @@ class TaskItem {
           DateTime.tryParse(json['fechaCreacion']?.toString() ?? '') ??
           DateTime.now(),
       notas: json['notas']?.toString() ?? '',
+      duracionMin: (json['duracionMin'] as num?)?.toInt(),
+      etiquetas: (json['etiquetas'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .where((e) => e.trim().isNotEmpty)
+              .toList() ??
+          const [],
     );
   }
 
@@ -91,6 +106,8 @@ class TaskItem {
     'completada': completada,
     'fechaCreacion': fechaCreacion.toIso8601String(),
     'notas': notas,
+    if (duracionMin != null) 'duracionMin': duracionMin,
+    if (etiquetas.isNotEmpty) 'etiquetas': etiquetas,
   };
 
   static String _normalizePriority(String? value) {

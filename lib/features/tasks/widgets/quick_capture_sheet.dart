@@ -613,15 +613,16 @@ class _CaptureInputField extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceContainer,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.outlineVariant, width: 0.6),
       ),
       padding: EdgeInsets.symmetric(
-        horizontal: 14,
+        horizontal: AppSpacing.lg,
         vertical: compact ? 2 : 6,
       ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: AppColors.onSurfaceVariant),
+          Icon(icon, size: 18, color: AppColors.violetLight),
           const SizedBox(width: 10),
           Expanded(
             child: TextField(
@@ -682,23 +683,31 @@ class _AddButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-      height: 54,
+      duration: AppMotion.base,
+      curve: AppMotion.standard,
+      height: 52,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(100),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         gradient: enabled
             ? const LinearGradient(
-                colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+                colors: [AppColors.primary, AppColors.indigo],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               )
             : null,
         color: enabled ? null : AppColors.surfaceHigh,
-        boxShadow: enabled ? _activeShadow : null,
+        border: Border.all(
+          color: enabled
+              ? Colors.white.withValues(alpha: 0.10)
+              : AppColors.outlineVariant,
+          width: 0.6,
+        ),
+        boxShadow: enabled ? AppShadow.brand(opacity: 0.30) : null,
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(100),
+          borderRadius: BorderRadius.circular(AppRadius.md),
           onTap: enabled ? onTap : null,
           child: Center(
             child: Row(
@@ -706,14 +715,16 @@ class _AddButton extends StatelessWidget {
               children: [
                 Icon(
                   Icons.add_rounded,
+                  size: 19,
                   color: enabled ? Colors.white : AppColors.onSurfaceVariant,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: AppSpacing.sm + 2),
                 Text(
                   'Agregar tarea',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14.5,
+                    letterSpacing: -0.15,
                     color: enabled ? Colors.white : AppColors.onSurfaceVariant,
                   ),
                 ),
@@ -805,7 +816,7 @@ class _LabeledPrimaryButton extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(100),
         gradient: const LinearGradient(
-          colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+          colors: [AppColors.primary, AppColors.indigo],
         ),
         boxShadow: _activeShadow,
       ),

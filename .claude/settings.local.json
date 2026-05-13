@@ -6,7 +6,9 @@
       "Bash(Sort-Object)",
       "PowerShell(head *)",
       "Bash(wc *)",
-      "Bash(flutter analyze *)"
+      "Bash(flutter analyze *)",
+      "Bash(flutter build *)",
+      "Bash(tasklist)"
     ]
   }
 }

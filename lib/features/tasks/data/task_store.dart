@@ -6,6 +6,7 @@ class TaskStore {
   static const _seenKey = 'thinkless_seen_onboarding';
   static const _alertsKey = 'thinkless_alerts';
   static const _dndKey = 'modo_no_molestar_config';
+  static const _focusTotalKey = 'focus_total_config';
 
   static Future<List<TaskItem>> loadTasks() async {
     final prefs = await SharedPreferences.getInstance();
@@ -70,5 +71,19 @@ class TaskStore {
   static Future<void> saveNoMolestar(NoMolestarConfig config) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_dndKey, jsonEncode(config.toJson()));
+  }
+
+  static Future<FocusTotalConfig> loadFocusTotal() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_focusTotalKey);
+    if (raw == null || raw.isEmpty) return FocusTotalConfig.idle();
+    return FocusTotalConfig.fromJson(
+      Map<String, dynamic>.from(jsonDecode(raw)),
+    );
+  }
+
+  static Future<void> saveFocusTotal(FocusTotalConfig config) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_focusTotalKey, jsonEncode(config.toJson()));
   }
 }

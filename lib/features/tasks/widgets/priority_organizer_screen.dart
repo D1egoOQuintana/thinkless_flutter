@@ -307,7 +307,7 @@ class PriorityProgressBar extends StatelessWidget {
                     height: 6,
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+                        colors: [AppColors.primary, AppColors.indigo],
                       ),
                     ),
                   ),
@@ -734,7 +734,7 @@ class _EmptyState extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: const LinearGradient(
-                colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+                colors: [AppColors.primary, AppColors.indigo],
               ),
               boxShadow: _activeShadow,
             ),

@@ -236,7 +236,7 @@ class _ReviewHeader extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: const LinearGradient(
-                colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+                colors: [AppColors.primary, AppColors.indigo],
               ),
             ),
             child: const Icon(
@@ -337,7 +337,7 @@ class DaySummaryMetrics extends StatelessWidget {
                                 gradient: LinearGradient(
                                   colors: [
                                     AppColors.mint,
-                                    Color(0xFF6C33FF),
+                                    AppColors.primary,
                                   ],
                                 ),
                               ),
@@ -832,7 +832,7 @@ class TomorrowPreviewCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             AppColors.primary.withValues(alpha: 0.08),
-            const Color(0xFF9B6FFF).withValues(alpha: 0.08),
+            AppColors.indigo.withValues(alpha: 0.08),
           ],
         ),
         border: Border.all(

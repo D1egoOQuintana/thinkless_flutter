@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -15,8 +17,10 @@ part 'app/navigation/app_view.dart';
 part 'features/tasks/domain/task_item.dart';
 part 'features/tasks/data/task_store.dart';
 part 'features/settings/domain/no_molestar_config.dart';
+part 'features/focus/domain/focus_total_config.dart';
 part 'features/assistant/data/groq_service.dart';
 part 'features/tasks/widgets/quick_capture_sheet.dart';
+part 'features/tasks/widgets/task_edit_sheet.dart';
 part 'features/tasks/widgets/priority_organizer_screen.dart';
 part 'features/tasks/widgets/free_time_sheet.dart';
 part 'features/focus/widgets/focus_screen.dart';
@@ -43,6 +47,11 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
   bool _loading = true;
   Map<String, dynamic> _alerts = {};
   NoMolestarConfig _noMolestar = NoMolestarConfig.defaults();
+  FocusTotalConfig _focusTotal = FocusTotalConfig.idle();
+  Timer? _focusTotalTicker;
+  final ValueNotifier<DateTime> _focusTotalClock = ValueNotifier<DateTime>(
+    DateTime.now(),
+  );
   int _focusMinutes = 25;
   String? _focusTaskTitle;
   String? _focusTaskId;
@@ -76,26 +85,250 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
   late final ThemeData _appTheme = _buildAppTheme();
 
   ThemeData _buildAppTheme() {
+    const cs = ColorScheme.dark(
+      brightness: Brightness.dark,
+      primary: AppColors.primary,
+      onPrimary: AppColors.onPrimary,
+      primaryContainer: AppColors.primaryContainer,
+      onPrimaryContainer: AppColors.violetLight,
+      secondary: AppColors.blue,
+      onSecondary: AppColors.onPrimary,
+      surface: AppColors.surface,
+      onSurface: AppColors.onSurface,
+      surfaceContainerLowest: AppColors.surfaceLowest,
+      surfaceContainerLow: AppColors.surface,
+      surfaceContainer: AppColors.surfaceContainer,
+      surfaceContainerHigh: AppColors.surfaceHigh,
+      surfaceContainerHighest: AppColors.surfaceHighest,
+      onSurfaceVariant: AppColors.onSurfaceVariant,
+      outline: AppColors.outline,
+      outlineVariant: AppColors.outlineVariant,
+      error: AppColors.error,
+      onError: AppColors.onPrimary,
+      errorContainer: AppColors.errorContainer,
+      onErrorContainer: AppColors.onErrorContainer,
+      secondaryContainer: AppColors.surfaceVariant,
+    );
+
+    final tt = TextTheme(
+      displayLarge: GoogleFonts.plusJakartaSans(
+        fontSize: 40, fontWeight: FontWeight.w800, color: AppColors.onSurface, letterSpacing: -1.4, height: 1.05,
+      ),
+      displayMedium: GoogleFonts.plusJakartaSans(
+        fontSize: 32, fontWeight: FontWeight.w800, color: AppColors.onSurface, letterSpacing: -1.0, height: 1.08,
+      ),
+      displaySmall: GoogleFonts.plusJakartaSans(
+        fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.onSurface, letterSpacing: -0.7, height: 1.1,
+      ),
+      headlineLarge: GoogleFonts.plusJakartaSans(
+        fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.onSurface, letterSpacing: -0.5, height: 1.15,
+      ),
+      headlineMedium: GoogleFonts.plusJakartaSans(
+        fontSize: 19, fontWeight: FontWeight.w700, color: AppColors.onSurface, letterSpacing: -0.35, height: 1.2,
+      ),
+      headlineSmall: GoogleFonts.plusJakartaSans(
+        fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.onSurface, letterSpacing: -0.2, height: 1.25,
+      ),
+      titleLarge: GoogleFonts.plusJakartaSans(
+        fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.onSurface, letterSpacing: -0.15, height: 1.3,
+      ),
+      titleMedium: GoogleFonts.inter(
+        fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.onSurface, letterSpacing: -0.1, height: 1.35,
+      ),
+      titleSmall: GoogleFonts.inter(
+        fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.onSurfaceVariant, letterSpacing: 0.1, height: 1.35,
+      ),
+      bodyLarge: GoogleFonts.inter(
+        fontSize: 15, fontWeight: FontWeight.w400, color: AppColors.onSurface, height: 1.5,
+      ),
+      bodyMedium: GoogleFonts.inter(
+        fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.onSurface, height: 1.5,
+      ),
+      bodySmall: GoogleFonts.inter(
+        fontSize: 12.5, fontWeight: FontWeight.w400, color: AppColors.onSurfaceVariant, height: 1.5,
+      ),
+      labelLarge: GoogleFonts.inter(
+        fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.onSurface, letterSpacing: 0.1,
+      ),
+      labelMedium: GoogleFonts.inter(
+        fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.onSurfaceVariant, letterSpacing: 0.2,
+      ),
+      labelSmall: GoogleFonts.inter(
+        fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.secondary, letterSpacing: 0.4,
+      ),
+    );
+
     return ThemeData(
       useMaterial3: true,
-      colorScheme: const ColorScheme.light(
-        primary: AppColors.primary,
-        onPrimary: AppColors.onPrimary,
-        surface: AppColors.surface,
-        onSurface: AppColors.onSurface,
-        error: AppColors.error,
-      ),
+      colorScheme: cs,
       scaffoldBackgroundColor: AppColors.background,
-      textTheme: GoogleFonts.manropeTextTheme().copyWith(
-        titleLarge: GoogleFonts.workSans(),
-        titleMedium: GoogleFonts.workSans(),
-        titleSmall: GoogleFonts.workSans(),
-        headlineMedium: GoogleFonts.workSans(),
-        headlineSmall: GoogleFonts.workSans(),
-        headlineLarge: GoogleFonts.workSans(),
-        displayLarge: GoogleFonts.workSans(),
-        displayMedium: GoogleFonts.workSans(),
-        displaySmall: GoogleFonts.workSans(),
+      canvasColor: AppColors.background,
+      textTheme: tt,
+      primaryTextTheme: tt,
+      splashFactory: InkSparkle.splashFactory,
+      hoverColor: AppColors.surfaceHigh.withValues(alpha: 0.4),
+      highlightColor: AppColors.primary.withValues(alpha: 0.05),
+      splashColor: AppColors.primary.withValues(alpha: 0.08),
+      dividerTheme: const DividerThemeData(
+        color: AppColors.outlineVariant,
+        thickness: 0.5,
+        space: 0.5,
+      ),
+      cardColor: AppColors.surfaceContainer,
+      iconTheme: const IconThemeData(color: AppColors.onSurfaceVariant, size: 20),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: AppColors.surfaceLowest,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: AppColors.primary.withValues(alpha: 0.16),
+        indicatorShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const IconThemeData(color: AppColors.violetLight, size: 22);
+          }
+          return const IconThemeData(color: AppColors.secondary, size: 22);
+        }),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return GoogleFonts.inter(
+              fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.violetLight, letterSpacing: 0.1,
+            );
+          }
+          return GoogleFonts.inter(
+            fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.secondary, letterSpacing: 0.1,
+          );
+        }),
+        height: 70,
+        elevation: 0,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.surfaceContainer,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xxl)),
+        elevation: 0,
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: AppColors.surfaceLowest,
+        modalBackgroundColor: AppColors.surfaceLowest,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        elevation: 0,
+        dragHandleColor: AppColors.outline,
+        dragHandleSize: Size(36, 4),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.surfaceContainer,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderSide: const BorderSide(color: AppColors.outlineVariant),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderSide: const BorderSide(color: AppColors.outlineVariant),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
+        ),
+        hintStyle: GoogleFonts.inter(color: AppColors.secondary, fontSize: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return AppColors.mint;
+          return Colors.transparent;
+        }),
+        checkColor: WidgetStateProperty.all(Colors.white),
+        side: const BorderSide(color: AppColors.outline, width: 1.5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: AppColors.surfaceContainer,
+        selectedColor: AppColors.primary.withValues(alpha: 0.18),
+        disabledColor: AppColors.surfaceContainer,
+        labelStyle: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.onSurface),
+        secondaryLabelStyle: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.violetLight),
+        side: const BorderSide(color: AppColors.outlineVariant),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        showCheckmark: false,
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return Colors.white;
+          return AppColors.onSurfaceVariant;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return AppColors.primary;
+          return AppColors.surfaceHighest;
+        }),
+        trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          textStyle: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700, fontSize: 14, letterSpacing: -0.1),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+          elevation: 0,
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.onSurface,
+          side: const BorderSide(color: AppColors.outline),
+          textStyle: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600, fontSize: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.violetLight,
+          textStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13.5),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+        ),
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: SegmentedButton.styleFrom(
+          backgroundColor: AppColors.surfaceContainer,
+          selectedBackgroundColor: AppColors.primary.withValues(alpha: 0.20),
+          selectedForegroundColor: AppColors.violetLight,
+          foregroundColor: AppColors.onSurfaceVariant,
+          side: const BorderSide(color: AppColors.outlineVariant),
+          textStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: AppColors.surfaceHigh,
+        contentTextStyle: GoogleFonts.inter(color: AppColors.onSurface, fontWeight: FontWeight.w500),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+        elevation: 0,
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: AppColors.primary,
+        linearTrackColor: AppColors.surfaceHigh,
+        circularTrackColor: AppColors.surfaceHigh,
+      ),
+      tooltipTheme: TooltipThemeData(
+        decoration: BoxDecoration(
+          color: AppColors.surfaceHighest,
+          borderRadius: BorderRadius.circular(AppRadius.sm),
+          border: Border.all(color: AppColors.outlineVariant),
+        ),
+        textStyle: GoogleFonts.inter(color: AppColors.onSurface, fontSize: 12),
+      ),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        },
       ),
     );
   }
@@ -111,16 +344,92 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
     final seen = await TaskStore.hasSeenOnboarding();
     final alerts = await TaskStore.loadAlerts();
     final noMolestar = await TaskStore.loadNoMolestar();
+    final focusTotal = await TaskStore.loadFocusTotal();
+    final restoredFocusTotal = focusTotal.expired
+        ? focusTotal.copyWith(active: false, clearStartedAt: true)
+        : focusTotal;
+    if (focusTotal.expired) {
+      await TaskStore.saveFocusTotal(restoredFocusTotal);
+    }
     setState(() {
       _tasks = _sortTasks(tasks);
       _alerts = alerts;
       _noMolestar = noMolestar;
+      _focusTotal = restoredFocusTotal;
       _view = seen ? AppView.home : AppView.onboarding;
       _loading = false;
     });
+    if (restoredFocusTotal.active) _startFocusTotalTicker();
     if (seen && isNoMolestarActivo(noMolestar)) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _showFocusModal());
     }
+  }
+
+  @override
+  void dispose() {
+    _focusTotalTicker?.cancel();
+    _focusTotalClock.dispose();
+    super.dispose();
+  }
+
+  void _startFocusTotalTicker() {
+    _focusTotalTicker?.cancel();
+    if (_focusTotal.unlimited) return; // sin countdown, no necesita tick
+    _focusTotalTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final now = DateTime.now();
+      if (_focusTotal.expiredAt(now)) {
+        _focusTotalTicker?.cancel();
+        _setFocusTotal(
+          _focusTotal.copyWith(active: false, clearStartedAt: true),
+          notify: true,
+        );
+      } else {
+        _focusTotalClock.value = now;
+      }
+    });
+  }
+
+  Future<void> _setFocusTotal(FocusTotalConfig config, {bool notify = false}) async {
+    _focusTotalClock.value = DateTime.now();
+    setState(() => _focusTotal = config);
+    await TaskStore.saveFocusTotal(config);
+    if (!config.active) {
+      _focusTotalTicker?.cancel();
+      _focusTotalTicker = null;
+      if (notify) {
+        final ctx = _navigatorKey.currentContext;
+        if (ctx != null && mounted) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(
+              content: Text('Sesión de Concentración Total finalizada'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    } else {
+      _startFocusTotalTicker();
+    }
+  }
+
+  Future<void> _activateFocusTotal(int minutes) async {
+    final config = FocusTotalConfig(
+      active: true,
+      durationMinutes: minutes,
+      startedAt: DateTime.now(),
+    );
+    await _setFocusTotal(config);
+    // Activa silencio en NoMolestar de forma forzada visualmente
+    if (!_noMolestar.activo) {
+      await _saveNoMolestar(_noMolestar.copyWith(activo: true));
+    }
+  }
+
+  Future<void> _deactivateFocusTotal() async {
+    await _setFocusTotal(
+      _focusTotal.copyWith(active: false, clearStartedAt: true),
+    );
   }
 
   Future<void> _startApp() async {
@@ -167,6 +476,63 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
     );
     setState(() => _tasks = next);
     await TaskStore.saveTasks(next);
+  }
+
+  Future<void> _updateTask(TaskItem updated) async {
+    final next = _sortTasks(
+      _tasks.map((task) => task.id == updated.id ? updated : task).toList(),
+    );
+    setState(() {
+      _tasks = next;
+      _selectedTask = next.firstWhere(
+        (t) => t.id == updated.id,
+        orElse: () => updated,
+      );
+    });
+    await TaskStore.saveTasks(next);
+  }
+
+  void _openEditSheet(TaskItem task) {
+    final ctx = _navigatorKey.currentContext;
+    if (ctx == null) return;
+    final materias = _tasks
+        .map((t) => t.materia)
+        .where((m) => m.isNotEmpty && m != 'General')
+        .toSet()
+        .toList();
+    final etiquetas = _tasks
+        .expand((t) => t.etiquetas)
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
+    showModalBottomSheet<void>(
+      context: ctx,
+      backgroundColor: AppColors.surfaceLowest,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) => TaskEditSheet(
+        task: task,
+        suggestedMaterias: materias,
+        suggestedEtiquetas: etiquetas,
+        onSave: (updated) {
+          Navigator.pop(sheetCtx);
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _updateTask(updated),
+          );
+        },
+        onDelete: () {
+          Navigator.pop(sheetCtx);
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _deleteTask(task.id),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _updatePriority(String id, String priority) async {
@@ -221,44 +587,76 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
     if (!mounted || !isNoMolestarActivo(_noMolestar)) return;
     final ctx = _navigatorKey.currentContext;
     if (ctx == null) return;
-    await showDialog<void>(
+    await showGeneralDialog<void>(
       context: ctx,
-      barrierColor: Colors.black.withValues(alpha: 0.18),
-      builder: (dialogContext) => Dialog(
-        insetPadding: const EdgeInsets.all(24),
-        backgroundColor: AppColors.surfaceLowest,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.all(22),
+      barrierDismissible: false,
+      barrierLabel: 'Horario de enfoque',
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      transitionDuration: const Duration(milliseconds: 280),
+      transitionBuilder: (context, anim, _, child) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (dialogContext, anim, _) => BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: PopScope(
+          canPop: false,
+          child: Dialog(
+            insetPadding: const EdgeInsets.all(AppSpacing.xxl),
+            backgroundColor: AppColors.surfaceContainer,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xxl)),
+            elevation: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.xxl),
+                border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+                boxShadow: AppShadow.lg,
+              ),
+              padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CircleAvatar(
-                radius: 34,
-                backgroundColor: AppColors.surfaceContainer,
-                child: Icon(Icons.school, color: AppColors.primary, size: 36),
+              Container(
+                width: 64, height: 64,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.30),
+                    width: 0.6,
+                  ),
+                ),
+                child: const Icon(Icons.school_rounded, color: AppColors.violetLight, size: 30),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.lg),
               Text(
-                'Estás en horario de enfoque 📚',
+                'Horario de enfoque',
                 textAlign: TextAlign.center,
-                style: Theme.of(
-                  dialogContext,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(dialogContext).textTheme.headlineMedium,
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Activamos modo silencioso para evitar distracciones',
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Activamos modo silencioso para evitar distracciones.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.onSurfaceVariant),
+                style: GoogleFonts.inter(
+                  color: AppColors.onSurfaceVariant,
+                  fontSize: 13.5,
+                  height: 1.4,
+                ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: AppSpacing.xl),
               PrimaryButton(
                 label: 'Continuar en silencio',
-                icon: Icons.notifications_off,
+                icon: Icons.notifications_off_rounded,
                 onTap: () => Navigator.pop(dialogContext),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: AppSpacing.sm),
               TextButton(
                 onPressed: () {
                   Navigator.pop(dialogContext);
@@ -268,6 +666,8 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
               ),
             ],
           ),
+        ),
+      ),
         ),
       ),
     );
@@ -322,24 +722,45 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
   }
 
   Widget _buildView() {
+    final shellExtras = <String, dynamic>{
+      'focusTotal': _focusTotal,
+      'focusTotalClock': _focusTotalClock,
+      'onOpenFocusTotal': () => _navigate(AppView.focus),
+      'onStopFocusTotal': _deactivateFocusTotal,
+    };
     return switch (_view) {
       AppView.onboarding => OnboardingScreen(onStart: _startApp),
       AppView.home => ShellScreen(
         active: AppView.home,
         onNavigate: _navigate,
         onFab: _showAddSheet,
+        focusTotal: shellExtras['focusTotal'] as FocusTotalConfig,
+        focusTotalClock: shellExtras['focusTotalClock'] as ValueNotifier<DateTime>,
+        onOpenFocusTotal: shellExtras['onOpenFocusTotal'] as VoidCallback,
+        onStopFocusTotal: shellExtras['onStopFocusTotal'] as VoidCallback,
         child: HomeScreen(
           tasks: _tasks,
+          focusTotal: _focusTotal,
+          focusTotalClock: _focusTotalClock,
           onOpenTask: _openTask,
           onToggleTask: _toggleTask,
           onNavigate: _navigate,
           onShowFreeTime: _showFreeTimeSheet,
+          onActivateFocusTotal: () => _showFocusTotalSheet(
+            _navigatorKey.currentContext!,
+            onActivate: _activateFocusTotal,
+          ),
+          onDeactivateFocusTotal: _deactivateFocusTotal,
         ),
       ),
       AppView.calendar => ShellScreen(
         active: AppView.calendar,
         onNavigate: _navigate,
         onFab: _showAddSheet,
+        focusTotal: shellExtras['focusTotal'] as FocusTotalConfig,
+        focusTotalClock: shellExtras['focusTotalClock'] as ValueNotifier<DateTime>,
+        onOpenFocusTotal: shellExtras['onOpenFocusTotal'] as VoidCallback,
+        onStopFocusTotal: shellExtras['onStopFocusTotal'] as VoidCallback,
         child: CalendarScreen(
           tasks: _tasks,
           onOpenTask: _openTask,
@@ -350,6 +771,10 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       AppView.focus => ShellScreen(
         active: AppView.focus,
         onNavigate: _navigate,
+        focusTotal: shellExtras['focusTotal'] as FocusTotalConfig,
+        focusTotalClock: shellExtras['focusTotalClock'] as ValueNotifier<DateTime>,
+        onOpenFocusTotal: shellExtras['onOpenFocusTotal'] as VoidCallback,
+        onStopFocusTotal: shellExtras['onStopFocusTotal'] as VoidCallback,
         child: FocusScreen(
           key: ValueKey(_focusSessionToken),
           noMolestar: _noMolestar,
@@ -368,6 +793,10 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
         active: AppView.matrix,
         onNavigate: _navigate,
         onFab: _showAddSheet,
+        focusTotal: shellExtras['focusTotal'] as FocusTotalConfig,
+        focusTotalClock: shellExtras['focusTotalClock'] as ValueNotifier<DateTime>,
+        onOpenFocusTotal: shellExtras['onOpenFocusTotal'] as VoidCallback,
+        onStopFocusTotal: shellExtras['onStopFocusTotal'] as VoidCallback,
         child: MatrixScreen(
           tasks: _tasks,
           onOpenTask: _openTask,
@@ -377,6 +806,10 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       AppView.alerts => ShellScreen(
         active: AppView.profile,
         onNavigate: _navigate,
+        focusTotal: shellExtras['focusTotal'] as FocusTotalConfig,
+        focusTotalClock: shellExtras['focusTotalClock'] as ValueNotifier<DateTime>,
+        onOpenFocusTotal: shellExtras['onOpenFocusTotal'] as VoidCallback,
+        onStopFocusTotal: shellExtras['onStopFocusTotal'] as VoidCallback,
         child: AlertsScreen(
           tasks: _tasks,
           alerts: _alerts,
@@ -388,6 +821,10 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       AppView.profile => ShellScreen(
         active: AppView.profile,
         onNavigate: _navigate,
+        focusTotal: shellExtras['focusTotal'] as FocusTotalConfig,
+        focusTotalClock: shellExtras['focusTotalClock'] as ValueNotifier<DateTime>,
+        onOpenFocusTotal: shellExtras['onOpenFocusTotal'] as VoidCallback,
+        onStopFocusTotal: shellExtras['onStopFocusTotal'] as VoidCallback,
         child: ProfileScreen(onNavigate: _navigate),
       ),
       AppView.voice => VoiceScreen(
@@ -404,6 +841,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
         onBack: () => _navigate(_previousView),
         onToggle: _toggleTask,
         onDelete: _deleteTask,
+        onEdit: _openEditSheet,
       ),
       AppView.priorities => PriorityOrganizerScreen(
         tasks: _tasks,
@@ -497,32 +935,33 @@ class OnboardingScreen extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Container(
-                          width: 192,
-                          height: 192,
+                          width: 168,
+                          height: 168,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             gradient: const LinearGradient(
-                              colors: [AppColors.mint, Color(0xFF6C33FF)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [AppColors.primary, AppColors.indigo, AppColors.blue],
                             ),
-                            boxShadow: _activeShadow,
+                            boxShadow: AppShadow.brand(opacity: 0.45),
                           ),
                           child: const Icon(
-                            Icons.psychology,
-                            size: 92,
+                            Icons.psychology_rounded,
+                            size: 80,
                             color: Colors.white,
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: AppSpacing.xxl),
                         Text(
                           'ThinkLess',
-                          style: Theme.of(context).textTheme.headlineLarge
-                              ?.copyWith(fontWeight: FontWeight.w800),
+                          style: Theme.of(context).textTheme.displaySmall,
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: AppSpacing.sm),
                         Text(
                           'Menos caos. Más hecho.',
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(color: AppColors.secondary),
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(color: AppColors.onSurfaceVariant),
                         ),
                       ],
                     ),
@@ -557,17 +996,47 @@ class ShellScreen extends StatelessWidget {
     required this.active,
     required this.onNavigate,
     this.onFab,
+    this.focusTotal,
+    this.focusTotalClock,
+    this.onOpenFocusTotal,
+    this.onStopFocusTotal,
     super.key,
   });
   final Widget child;
   final AppView active;
   final ValueChanged<AppView> onNavigate;
   final VoidCallback? onFab;
+  final FocusTotalConfig? focusTotal;
+  final ValueNotifier<DateTime>? focusTotalClock;
+  final VoidCallback? onOpenFocusTotal;
+  final VoidCallback? onStopFocusTotal;
 
   @override
   Widget build(BuildContext context) {
+    final ft = focusTotal;
+    final showBanner = ft != null && ft.active;
     return Scaffold(
-      body: child,
+      body: Column(
+        children: [
+          AnimatedSize(
+            duration: AppMotion.base,
+            curve: AppMotion.standard,
+            alignment: Alignment.topCenter,
+            child: showBanner
+                ? SafeArea(
+                    bottom: false,
+                    child: FocusTotalBanner(
+                      config: ft,
+                      clock: focusTotalClock,
+                      onTap: onOpenFocusTotal ?? () {},
+                      onStop: onStopFocusTotal ?? () {},
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          Expanded(child: child),
+        ],
+      ),
       floatingActionButton: onFab == null ? null : GradientFab(onTap: onFab!),
       bottomNavigationBar: NavigationBar(
         height: 68,
@@ -625,42 +1094,81 @@ class ShellScreen extends StatelessWidget {
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     required this.tasks,
+    required this.focusTotal,
+    required this.focusTotalClock,
     required this.onOpenTask,
     required this.onToggleTask,
     required this.onNavigate,
     required this.onShowFreeTime,
+    required this.onActivateFocusTotal,
+    required this.onDeactivateFocusTotal,
     super.key,
   });
 
   final List<TaskItem> tasks;
+  final FocusTotalConfig focusTotal;
+  final ValueNotifier<DateTime> focusTotalClock;
   final ValueChanged<TaskItem> onOpenTask;
   final ValueChanged<String> onToggleTask;
   final ValueChanged<AppView> onNavigate;
   final VoidCallback onShowFreeTime;
+  final VoidCallback onActivateFocusTotal;
+  final VoidCallback onDeactivateFocusTotal;
 
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
       title: 'ThinkLess',
-      leading: Icons.menu,
-      trailing: Icons.more_vert,
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
+        padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, 110),
         children: [
-          Text(
-            '👋 Bienvenido',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.25),
+                    width: 0.6,
+                  ),
+                ),
+                child: const Icon(Icons.waving_hand_rounded, size: 16, color: AppColors.violetLight),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bienvenido',
+                      style: GoogleFonts.inter(
+                        fontSize: 11.5,
+                        color: AppColors.secondary,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    Text(
+                      'Tu día, organizado',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Tus tareas',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          const SizedBox(height: AppSpacing.xl),
+          FocusTotalCard(
+            config: focusTotal,
+            clock: focusTotalClock,
+            onActivate: onActivateFocusTotal,
+            onDeactivate: onDeactivateFocusTotal,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.xxl),
+          _HomeSectionLabel(label: 'Tus tareas', count: tasks.isEmpty ? null : tasks.length),
+          const SizedBox(height: AppSpacing.md),
           if (tasks.isEmpty)
             EmptyStateCard(
               icon: Icons.add_task,
@@ -688,21 +1196,23 @@ class HomeScreen extends StatelessWidget {
                 onToggle: () => onToggleTask(task.id),
               ),
             ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppSpacing.xxl),
+          _HomeSectionLabel(label: 'Para comenzar'),
+          const SizedBox(height: AppSpacing.md),
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _CardHeader(title: 'Para comenzar', icon: Icons.expand_less),
-                const SizedBox(height: 12),
                 _StarterItem(
                   'Registra tu primera tarea con voz',
                   () => onNavigate(AppView.voice),
                 ),
+                const SizedBox(height: 4),
                 _StarterItem(
                   'Activa los recordatorios inteligentes',
                   () => onNavigate(AppView.alerts),
                 ),
+                const SizedBox(height: 4),
                 _StarterItem(
                   'Organiza con listas',
                   () => onNavigate(AppView.matrix),
@@ -710,12 +1220,12 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.xxl),
+          _HomeSectionLabel(label: 'Funciones clave'),
+          const SizedBox(height: AppSpacing.md),
           AppCard(
             child: Column(
               children: [
-                _CardHeader(title: 'Funciones clave', icon: Icons.expand_more),
-                const SizedBox(height: 12),
                 GridView.count(
                   crossAxisCount: MediaQuery.sizeOf(context).width > 520
                       ? 3
@@ -727,107 +1237,128 @@ class HomeScreen extends StatelessWidget {
                   crossAxisSpacing: 12,
                   children: [
                     FeatureTile(
-                      icon: Icons.calendar_month,
+                      icon: Icons.calendar_month_rounded,
                       label: 'Calendario',
+                      accent: AppColors.blue,
                       onTap: () => onNavigate(AppView.calendar),
                     ),
                     FeatureTile(
-                      icon: Icons.grid_view,
+                      icon: Icons.grid_view_rounded,
                       label: 'Matriz Eisenhower',
+                      accent: AppColors.violetLight,
                       onTap: () => onNavigate(AppView.matrix),
                     ),
                     FeatureTile(
                       icon: Icons.flag_rounded,
                       label: 'Priorizar',
-                      color: const Color(0xFFFFE0E0),
+                      accent: AppColors.pink,
                       onTap: () => onNavigate(AppView.priorities),
                     ),
                     FeatureTile(
                       icon: Icons.hourglass_top_rounded,
                       label: 'Tiempo libre',
-                      color: const Color(0xFFD0F0E8),
+                      accent: AppColors.mint,
                       onTap: onShowFreeTime,
                     ),
                     FeatureTile(
                       icon: Icons.nightlight_round,
                       label: 'Revisión del día',
-                      color: const Color(0xFFE5DFFF),
+                      accent: AppColors.indigo,
                       onTap: () => onNavigate(AppView.review),
                     ),
                     FeatureTile(
-                      icon: Icons.timer,
+                      icon: Icons.timer_rounded,
                       label: 'Pomodoro',
-                      color: AppColors.errorContainer,
+                      accent: AppColors.error,
                       onTap: () => onNavigate(AppView.focus),
-                    ),
-                    FeatureTile(
-                      icon: Icons.published_with_changes,
-                      label: 'Hábitos',
-                      onTap: () =>
-                          _toast(context, 'Hábitos estará disponible pronto.'),
-                    ),
-                    FeatureTile(
-                      icon: Icons.hourglass_bottom,
-                      label: 'Cuenta regresiva',
-                      color: const Color(0xFFFFDBD0),
-                      onTap: () =>
-                          _toast(context, 'Cuenta regresiva simulada.'),
                     ),
                   ],
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            'Explorar más',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          InkWell(
-            onTap: () => _showPremiumModal(context),
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: const LinearGradient(
-                  colors: [AppColors.primary, Color(0xFF9B6FFF)],
-                ),
-                boxShadow: _activeShadow,
-              ),
-              child: const Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.diamond, color: Colors.white),
-                            SizedBox(width: 8),
-                            Text(
-                              'Premium',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Desbloquea todo el potencial de ThinkLess.',
-                          style: TextStyle(color: Color(0xFFE6DEFF)),
-                        ),
-                      ],
-                    ),
+          const SizedBox(height: AppSpacing.xxl),
+          _HomeSectionLabel(label: 'Explorar más'),
+          const SizedBox(height: AppSpacing.md),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _showPremiumModal(context),
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              child: Container(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF231B4D),
+                      Color(0xFF2C2058),
+                      Color(0xFF1B1E2B),
+                    ],
                   ),
-                  Icon(Icons.auto_awesome, color: Colors.white, size: 64),
-                ],
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.35),
+                    width: 0.8,
+                  ),
+                  boxShadow: AppShadow.brand(opacity: 0.22),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(7),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.20),
+                                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                                ),
+                                child: const Icon(Icons.diamond_rounded, color: AppColors.violetLight, size: 16),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Premium',
+                                style: GoogleFonts.plusJakartaSans(
+                                  color: AppColors.onSurface,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.sm + 2),
+                          Text(
+                            'Desbloquea todo el potencial de ThinkLess.',
+                            style: GoogleFonts.inter(
+                              color: AppColors.onSurfaceVariant,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 64, height: 64,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [AppColors.primary, AppColors.indigo],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
+                        boxShadow: AppShadow.brand(opacity: 0.35),
+                      ),
+                      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 28),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -959,42 +1490,54 @@ class _VoiceScreenState extends State<VoiceScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         AnimatedContainer(
-                          duration: const Duration(milliseconds: 250),
-                          width: listening ? 172 : 144,
-                          height: listening ? 172 : 144,
+                          duration: AppMotion.slow,
+                          curve: AppMotion.standard,
+                          width: listening ? 168 : 140,
+                          height: listening ? 168 : 140,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.white,
+                            gradient: RadialGradient(
+                              colors: listening
+                                  ? [
+                                      AppColors.mint.withValues(alpha: 0.18),
+                                      AppColors.surfaceContainer,
+                                    ]
+                                  : [
+                                      AppColors.primary.withValues(alpha: 0.14),
+                                      AppColors.surfaceContainer,
+                                    ],
+                            ),
                             border: Border.all(
                               color: listening
-                                  ? AppColors.mint
-                                  : AppColors.surfaceHighest,
-                              width: listening ? 4 : 1,
+                                  ? AppColors.mint.withValues(alpha: 0.7)
+                                  : AppColors.outline,
+                              width: listening ? 2 : 1,
                             ),
-                            boxShadow: listening ? _activeShadow : _softShadow,
+                            boxShadow: listening
+                                ? [
+                                    BoxShadow(
+                                      color: AppColors.mint.withValues(alpha: 0.35),
+                                      blurRadius: 32,
+                                      spreadRadius: 2,
+                                    ),
+                                  ]
+                                : AppShadow.brand(opacity: 0.18),
                           ),
                           child: Icon(
-                            listening ? Icons.graphic_eq : Icons.mic,
-                            size: 58,
-                            color: listening
-                                ? AppColors.mint
-                                : AppColors.primaryContainer,
+                            listening ? Icons.graphic_eq_rounded : Icons.mic_rounded,
+                            size: 56,
+                            color: listening ? AppColors.mint : AppColors.violetLight,
                           ),
                         ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: AppSpacing.xxl),
                         Text(
-                          '🎉 Voz e IA activados',
+                          'Voz e IA activadas',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
+                          style: Theme.of(context).textTheme.headlineMedium,
                         ),
                         if (isNoMolestarActivo(widget.noMolestar)) ...[
-                          const SizedBox(height: 8),
-                          const Chip(
-                            avatar: Icon(Icons.notifications_off, size: 16),
-                            label: Text('IA en modo silencioso'),
-                            backgroundColor: AppColors.surfaceContainer,
-                          ),
+                          const SizedBox(height: AppSpacing.sm + 2),
+                          InfoChip(icon: Icons.notifications_off_rounded, text: 'IA en modo silencioso'),
                         ],
                         const SizedBox(height: 18),
                         if (_status == 'idle') _VoiceTips(),
@@ -1135,10 +1678,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
                         aspectRatio: 4 / 5,
                         child: Container(
                           decoration: BoxDecoration(
-                            color: AppColors.surfaceHigh,
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: AppColors.outlineVariant),
-                            boxShadow: _softShadow,
+                            color: AppColors.surfaceContainer,
+                            borderRadius: BorderRadius.circular(AppRadius.xxl),
+                            border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+                            boxShadow: AppShadow.md,
                           ),
                           clipBehavior: Clip.antiAlias,
                           child: Stack(
@@ -1151,21 +1694,45 @@ class _ScannerScreenState extends State<ScannerScreen> {
                               const _ScanCorners(),
                               if (_loading)
                                 Container(
-                                  color: Colors.white70,
+                                  color: Colors.black.withValues(alpha: 0.55),
                                   child: const Center(
-                                    child: CircularProgressIndicator(),
+                                    child: CircularProgressIndicator(
+                                      color: AppColors.violetLight,
+                                      strokeWidth: 3,
+                                    ),
                                   ),
                                 ),
                               Positioned(
-                                left: 20,
-                                right: 20,
-                                bottom: 20,
-                                child: Chip(
-                                  backgroundColor: Colors.white.withValues(
-                                    alpha: 0.88,
+                                left: AppSpacing.lg,
+                                right: AppSpacing.lg,
+                                bottom: AppSpacing.lg,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surfaceLowest.withValues(alpha: 0.85),
+                                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                                    border: Border.all(
+                                      color: AppColors.outlineVariant,
+                                      width: 0.6,
+                                    ),
                                   ),
-                                  label: const Text(
-                                    'Apunta a tu cuaderno o captura de pantalla',
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.center_focus_strong_rounded,
+                                          size: 14, color: AppColors.violetLight),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          'Apunta a tu cuaderno o captura',
+                                          style: GoogleFonts.inter(
+                                            color: AppColors.onSurface,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -1302,8 +1869,6 @@ class MatrixScreen extends StatelessWidget {
     final source = tasks.isEmpty ? _sampleMatrixTasks() : tasks;
     return AppScaffold(
       title: 'Matriz Eisenhower',
-      leading: Icons.menu,
-      trailing: Icons.more_vert,
       body: GridView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -1362,12 +1927,14 @@ class DetailScreen extends StatelessWidget {
     required this.onBack,
     required this.onToggle,
     required this.onDelete,
+    required this.onEdit,
     super.key,
   });
   final TaskItem? task;
   final VoidCallback onBack;
   final ValueChanged<String> onToggle;
   final ValueChanged<String> onDelete;
+  final ValueChanged<TaskItem> onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -1386,8 +1953,7 @@ class DetailScreen extends StatelessWidget {
         preferredSize: const Size.fromHeight(64),
         child: AppHeader(
           title: item.titulo,
-          leading: Icons.arrow_back,
-          trailing: Icons.more_vert,
+          leading: Icons.arrow_back_rounded,
           onLeading: onBack,
         ),
       ),
@@ -1403,45 +1969,96 @@ class DetailScreen extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              InfoChip(icon: Icons.calendar_today, text: item.fecha),
-              InfoChip(
-                icon: Icons.timer,
-                text: item.hora == 'Sin hora' ? '3h estimadas' : item.hora,
-              ),
-              InfoChip(icon: Icons.school, text: item.materia),
+              InfoChip(icon: Icons.calendar_today_rounded, text: item.fecha),
+              if (item.hora != 'Sin hora')
+                InfoChip(icon: Icons.schedule_rounded, text: item.hora),
+              InfoChip(icon: Icons.school_rounded, text: item.materia),
+              if (item.duracionMin != null)
+                InfoChip(
+                  icon: Icons.hourglass_top_rounded,
+                  text: item.duracionMin! >= 60
+                      ? (item.duracionMin! % 60 == 0
+                          ? '${item.duracionMin! ~/ 60} h'
+                          : '${item.duracionMin! ~/ 60}h ${item.duracionMin! % 60}m')
+                      : '${item.duracionMin} min',
+                ),
             ],
           ),
+          if (item.etiquetas.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: item.etiquetas
+                  .map(
+                    (tag) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.30),
+                          width: 0.6,
+                        ),
+                      ),
+                      child: Text(
+                        '#$tag',
+                        style: GoogleFonts.inter(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.violetLight,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
           const SizedBox(height: 20),
           Container(
-            padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF0EBFF),
-              border: Border(
-                left: BorderSide(color: AppColors.primary, width: 4),
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.22),
+                width: 0.6,
               ),
-              borderRadius: BorderRadius.horizontal(right: Radius.circular(16)),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  backgroundColor: AppColors.primaryContainer,
-                  child: Icon(Icons.lightbulb, color: Colors.white),
+                Container(
+                  width: 38, height: 38,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: const Icon(Icons.auto_awesome_rounded, color: AppColors.violetLight, size: 18),
                 ),
-                SizedBox(width: 12),
+                const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Sugerencia IA',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.primary,
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.violetLight,
+                          fontSize: 12.5,
+                          letterSpacing: 0.2,
                         ),
                       ),
-                      SizedBox(height: 4),
-                      Text('💡 Hazlo en tu bloque libre de las 2pm'),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Hazlo en tu bloque libre de las 2pm.',
+                        style: GoogleFonts.inter(
+                          color: AppColors.onSurface,
+                          fontSize: 13.5,
+                          height: 1.4,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1483,8 +2100,8 @@ class DetailScreen extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => _toast(context, 'Edicion simulada.'),
-                  icon: const Icon(Icons.edit),
+                  onPressed: () => onEdit(item),
+                  icon: const Icon(Icons.edit_rounded, size: 18),
                   label: const Text('Editar'),
                 ),
               ),
@@ -1506,20 +2123,53 @@ class DetailScreen extends StatelessWidget {
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.mint,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-            onPressed: () => onToggle(item.id),
-            icon: Icon(item.completada ? Icons.undo : Icons.check),
-            label: Text(
-              item.completada
-                  ? 'Marcar como pendiente'
-                  : 'Marcar como completada',
-              style: const TextStyle(fontWeight: FontWeight.w800),
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: GestureDetector(
+            onTap: () => onToggle(item.id),
+            child: Container(
+              height: 52,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: item.completada
+                      ? [AppColors.surfaceHigh, AppColors.surfaceContainer]
+                      : [AppColors.mint, AppColors.mint.withValues(alpha: 0.85)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(
+                  color: item.completada ? AppColors.outlineVariant : Colors.white.withValues(alpha: 0.10),
+                  width: 0.6,
+                ),
+                boxShadow: item.completada
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: AppColors.mint.withValues(alpha: 0.30),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    item.completada ? Icons.undo_rounded : Icons.check_rounded,
+                    color: Colors.white, size: 20,
+                  ),
+                  const SizedBox(width: AppSpacing.sm + 2),
+                  Text(
+                    item.completada ? 'Marcar como pendiente' : 'Marcar como completada',
+                    style: GoogleFonts.plusJakartaSans(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14.5,
+                      letterSpacing: -0.15,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1550,63 +2200,85 @@ class AlertsScreen extends StatelessWidget {
     final silentNow = isNoMolestarActivo(noMolestar);
     return AppScaffold(
       title: 'ThinkLess',
-      leading: Icons.menu,
-      trailing: Icons.more_vert,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
         children: [
           Row(
             children: [
-              const Icon(Icons.campaign, color: AppColors.primary, size: 32),
-              const SizedBox(width: 10),
-              Text(
-                'Alertas inteligentes',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.25),
+                    width: 0.6,
+                  ),
+                ),
+                child: const Icon(Icons.campaign_rounded, color: AppColors.violetLight, size: 20),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  'Alertas inteligentes',
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpacing.xl),
           NoMolestarCard(
             config: noMolestar,
             activeNow: silentNow,
             onChanged: onSaveNoMolestar,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.lg),
           AppCard(
             stripe: AppColors.mint,
             child: Row(
               children: [
-                const CircleAvatar(
-                  backgroundColor: AppColors.surfaceHigh,
-                  child: Icon(Icons.science, color: AppColors.primary),
+                Container(
+                  width: 42, height: 42,
+                  decoration: BoxDecoration(
+                    color: AppColors.mint.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(
+                      color: AppColors.mint.withValues(alpha: 0.30),
+                      width: 0.6,
+                    ),
+                  ),
+                  child: const Icon(Icons.bolt_rounded, color: AppColors.mint, size: 20),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        urgent == null
-                            ? 'Tienes 45 min libres.'
-                            : 'Tienes 45 min libres.',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
+                        'Tienes 45 min libres',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: AppColors.onSurface,
+                          letterSpacing: -0.2,
                         ),
                       ),
+                      const SizedBox(height: 2),
                       Text(
                         urgent == null
                             ? '¿Empezamos con Física?'
                             : '¿Empezamos con ${urgent.titulo}?',
-                        style: const TextStyle(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
                           color: AppColors.onSurfaceVariant,
+                          fontSize: 12.5,
                         ),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(width: AppSpacing.sm),
                 FilledButton(
                   onPressed: () => _toast(
                     context,
@@ -1614,7 +2286,7 @@ class AlertsScreen extends StatelessWidget {
                         ? 'No hay tareas pendientes.'
                         : urgent.titulo,
                   ),
-                  child: const Text('Ver tarea'),
+                  child: const Text('Ver'),
                 ),
               ],
             ),
@@ -1679,8 +2351,6 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppScaffold(
       title: 'ThinkLess',
-      leading: Icons.menu,
-      trailing: Icons.more_vert,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
         children: [
@@ -1689,28 +2359,39 @@ class ProfileScreen extends StatelessWidget {
               Container(
                 width: 96,
                 height: 96,
-                padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
+                padding: const EdgeInsets.all(2.5),
+                decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [AppColors.primaryContainer, AppColors.mint],
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppColors.primary, AppColors.indigo, AppColors.blue],
+                  ),
+                  boxShadow: AppShadow.brand(opacity: 0.30),
+                ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.surface,
+                    border: Border.all(color: AppColors.surfaceContainer, width: 2),
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.person_rounded, size: 44, color: AppColors.violetLight),
                   ),
                 ),
-                child: const CircleAvatar(
-                  backgroundColor: AppColors.surface,
-                  child: Icon(Icons.person, size: 52, color: AppColors.primary),
-                ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               Text(
                 'Alex',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(context).textTheme.headlineMedium,
               ),
-              const Text(
+              const SizedBox(height: 2),
+              Text(
                 'alex.student@academia.edu',
-                style: TextStyle(color: AppColors.onSurfaceVariant),
+                style: GoogleFonts.inter(
+                  color: AppColors.onSurfaceVariant,
+                  fontSize: 13,
+                ),
               ),
             ],
           ),
@@ -1814,50 +2495,70 @@ class AppHeader extends StatelessWidget {
     this.leading,
     this.trailing,
     this.onLeading,
+    this.onTrailing,
+    this.subtitle,
     super.key,
   });
   final String title;
   final IconData? leading;
   final IconData? trailing;
   final VoidCallback? onLeading;
+  final VoidCallback? onTrailing;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       bottom: false,
       child: Container(
-        height: 64,
-        color: AppColors.surface,
+        height: 60,
+        decoration: const BoxDecoration(
+          color: AppColors.background,
+          border: Border(
+            bottom: BorderSide(color: AppColors.outlineSubtle, width: 0.5),
+          ),
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Row(
           children: [
-            IconButton(
-              onPressed: onLeading ?? () {},
-              icon: Icon(
-                leading ?? Icons.menu,
-                color: AppColors.onSurfaceVariant,
-              ),
+            _AppHeaderBtn(
+              icon: leading ?? Icons.menu_rounded,
+              onTap: onLeading,
+              visible: leading != null,
             ),
             Expanded(
-              child: Text(
-                title,
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.onSurface,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: AppColors.secondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-            IconButton(
-              onPressed: () {},
-              icon: Icon(
-                trailing ?? Icons.more_vert,
-                color: trailing == null
-                    ? Colors.transparent
-                    : AppColors.onSurfaceVariant,
-              ),
+            _AppHeaderBtn(
+              icon: trailing ?? Icons.more_horiz_rounded,
+              onTap: onTrailing,
+              visible: trailing != null,
             ),
           ],
         ),
@@ -1866,37 +2567,93 @@ class AppHeader extends StatelessWidget {
   }
 }
 
+class _AppHeaderBtn extends StatelessWidget {
+  const _AppHeaderBtn({required this.icon, required this.onTap, required this.visible});
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return const SizedBox(width: 38, height: 38);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Container(
+          width: 38, height: 38,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceContainer,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+          ),
+          child: Icon(icon, size: 18, color: AppColors.onSurfaceVariant),
+        ),
+      ),
+    );
+  }
+}
+
 class AppCard extends StatelessWidget {
-  const AppCard({required this.child, this.stripe, super.key});
+  const AppCard({
+    required this.child,
+    this.stripe,
+    this.padding,
+    this.elevated = false,
+    super.key,
+  });
   final Widget child;
   final Color? stripe;
+  final EdgeInsetsGeometry? padding;
+  final bool elevated;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: AppColors.surfaceLowest,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.5),
-        ),
-        boxShadow: _softShadow,
+        color: elevated ? AppColors.surfaceVariant : AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+        boxShadow: elevated ? AppShadow.sm : null,
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          border: stripe != null
-              ? Border(left: BorderSide(color: stripe!, width: 4))
-              : null,
-        ),
-        padding: const EdgeInsets.all(16),
-        child: child,
-      ),
+      child: stripe != null
+          ? IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    width: 3,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          stripe!,
+                          stripe!.withValues(alpha: 0.5),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
+                      child: child,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : Padding(
+              padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
+              child: child,
+            ),
     );
   }
 }
 
-class TaskCard extends StatelessWidget {
+class TaskCard extends StatefulWidget {
   const TaskCard({
     required this.task,
     required this.onTap,
@@ -1910,79 +2667,180 @@ class TaskCard extends StatelessWidget {
   final bool compact;
 
   @override
+  State<TaskCard> createState() => _TaskCardState();
+}
+
+class _TaskCardState extends State<TaskCard> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final color = priorityColor(task.prioridad);
+    final color = priorityColor(widget.task.prioridad);
+    final done = widget.task.completada;
     return AnimatedOpacity(
-      duration: const Duration(milliseconds: 220),
-      opacity: task.completada ? 0.62 : 1,
+      duration: AppMotion.base,
+      opacity: done ? 0.55 : 1,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: AppCard(
-            stripe: color,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                InkWell(
-                  onTap: onToggle,
-                  customBorder: const CircleBorder(),
-                  child: Container(
-                    width: 26,
-                    height: 26,
-                    margin: const EdgeInsets.only(top: 2),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: task.completada
-                          ? AppColors.mint
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: task.completada
-                            ? AppColors.mint
-                            : AppColors.primary,
-                        width: 2,
+        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTap: widget.onTap,
+          child: AnimatedScale(
+            scale: _pressed ? 0.985 : 1,
+            duration: AppMotion.fast,
+            curve: AppMotion.standard,
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainer,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                border: Border.all(
+                  color: _pressed ? AppColors.outline : AppColors.outlineVariant,
+                  width: 0.6,
+                ),
+              ),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      width: 3,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [color, color.withValues(alpha: 0.4)],
+                        ),
+                        borderRadius: const BorderRadius.horizontal(left: Radius.circular(AppRadius.lg)),
                       ),
                     ),
-                    child: task.completada
-                        ? const Icon(Icons.check, size: 16, color: Colors.white)
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        task.titulo,
-                        style: TextStyle(
-                          fontSize: compact ? 15 : 16,
-                          fontWeight: FontWeight.w700,
-                          decoration: task.completada
-                              ? TextDecoration.lineThrough
-                              : null,
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg,
+                          vertical: widget.compact ? AppSpacing.md : AppSpacing.md + 2,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            GestureDetector(
+                              onTap: widget.onToggle,
+                              behavior: HitTestBehavior.opaque,
+                              child: AnimatedContainer(
+                                duration: AppMotion.fast,
+                                curve: AppMotion.standard,
+                                width: 22, height: 22,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: done ? AppColors.mint : Colors.transparent,
+                                  border: Border.all(
+                                    color: done ? AppColors.mint : AppColors.outline,
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: done
+                                      ? [BoxShadow(
+                                          color: AppColors.mint.withValues(alpha: 0.4),
+                                          blurRadius: 8, spreadRadius: 0)]
+                                      : null,
+                                ),
+                                child: done
+                                    ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    widget.task.titulo,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.inter(
+                                      fontSize: widget.compact ? 14 : 14.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.onSurface,
+                                      letterSpacing: -0.1,
+                                      decoration: done ? TextDecoration.lineThrough : null,
+                                      decorationColor: AppColors.secondary,
+                                      decorationThickness: 1.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Wrap(
+                                    spacing: AppSpacing.sm,
+                                    runSpacing: 4,
+                                    children: [
+                                      _MetaChip(icon: Icons.school_rounded, text: widget.task.materia),
+                                      _MetaChip(icon: Icons.calendar_today_rounded, text: widget.task.fecha),
+                                      if (widget.task.hora != 'Sin hora')
+                                        _MetaChip(icon: Icons.schedule_rounded, text: widget.task.hora),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            _PriorityDot(color: color),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 4,
-                        children: [
-                          _Meta(icon: Icons.school, text: task.materia),
-                          _Meta(icon: Icons.calendar_today, text: task.fecha),
-                          if (task.hora != 'Sin hora')
-                            _Meta(icon: Icons.schedule, text: task.hora),
-                        ],
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _PriorityDot extends StatelessWidget {
+  const _PriorityDot({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 8, height: 8,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color,
+        boxShadow: [
+          BoxShadow(color: color.withValues(alpha: 0.55), blurRadius: 8, spreadRadius: 0.5),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 11, color: AppColors.secondary),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: GoogleFonts.inter(
+            fontSize: 11.5,
+            color: AppColors.secondary,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.05,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2014,38 +2872,86 @@ class EmptyStateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.6),
+          width: 0.5,
+        ),
+      ),
       child: Column(
         children: [
-          CircleAvatar(
-            radius: 28,
-            backgroundColor: AppColors.surfaceContainer,
-            child: Icon(icon, color: AppColors.primary, size: 30),
+          Container(
+            width: 64, height: 64,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.2),
+                width: 0.5,
+              ),
+            ),
+            child: Icon(icon, color: AppColors.violetLight, size: 30),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Text(
             title,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+            style: GoogleFonts.plusJakartaSans(
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              color: AppColors.onSurface,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             body,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: AppColors.onSurfaceVariant),
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              color: AppColors.secondary,
+              height: 1.5,
+            ),
           ),
           if (actions.isNotEmpty) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 20),
             Wrap(
               alignment: WrapAlignment.center,
               spacing: 10,
               runSpacing: 8,
               children: actions
                   .map(
-                    (action) => FilledButton.icon(
-                      onPressed: action.onTap,
-                      icon: Icon(action.icon, size: 18),
-                      label: Text(action.label),
+                    (action) => GestureDetector(
+                      onTap: action.onTap,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceHigh,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppColors.outlineVariant.withValues(alpha: 0.7),
+                            width: 0.5,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(action.icon, size: 15, color: AppColors.violetLight),
+                            const SizedBox(width: 6),
+                            Text(
+                              action.label,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   )
                   .toList(),
@@ -2057,7 +2963,7 @@ class EmptyStateCard extends StatelessWidget {
   }
 }
 
-class PrimaryButton extends StatelessWidget {
+class PrimaryButton extends StatefulWidget {
   const PrimaryButton({
     required this.label,
     required this.icon,
@@ -2069,47 +2975,101 @@ class PrimaryButton extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
+  State<PrimaryButton> createState() => _PrimaryButtonState();
+}
+
+class _PrimaryButtonState extends State<PrimaryButton> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    return FilledButton.icon(
-      style: FilledButton.styleFrom(
-        backgroundColor: AppColors.primaryContainer,
-        foregroundColor: AppColors.onPrimary,
-        minimumSize: const Size.fromHeight(56),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        elevation: 0,
-      ),
-      onPressed: onTap,
-      icon: Icon(icon),
-      label: Text(
-        label,
-        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+    final enabled = widget.onTap != null;
+    return GestureDetector(
+      onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
+      onTapCancel: () => setState(() => _pressed = false),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _pressed ? 0.97 : 1,
+        duration: AppMotion.fast,
+        curve: AppMotion.standard,
+        child: AnimatedOpacity(
+          duration: AppMotion.fast,
+          opacity: enabled ? 1 : 0.55,
+          child: Container(
+            height: 52,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.primary,
+                  AppColors.indigo.withValues(alpha: 0.95),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.6),
+              boxShadow: enabled ? AppShadow.brand(opacity: 0.28) : null,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(widget.icon, color: Colors.white, size: 19),
+                const SizedBox(width: AppSpacing.sm + 2),
+                Text(
+                  widget.label,
+                  style: GoogleFonts.plusJakartaSans(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14.5,
+                    letterSpacing: -0.15,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class GradientFab extends StatelessWidget {
+class GradientFab extends StatefulWidget {
   const GradientFab({required this.onTap, super.key});
   final VoidCallback onTap;
 
   @override
+  State<GradientFab> createState() => _GradientFabState();
+}
+
+class _GradientFabState extends State<GradientFab> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    return FloatingActionButton(
-      onPressed: onTap,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      child: Container(
-        width: 64,
-        height: 64,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapCancel: () => setState(() => _pressed = false),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTap: widget.onTap,
+      child: AnimatedScale(
+        scale: _pressed ? 0.93 : 1,
+        duration: AppMotion.fast,
+        curve: AppMotion.standard,
+        child: Container(
+          width: 56, height: 56,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [AppColors.primary, AppColors.indigo],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.10), width: 0.8),
+            boxShadow: AppShadow.brand(opacity: 0.40),
           ),
-          boxShadow: _activeShadow,
+          child: const Icon(Icons.add_rounded, color: Colors.white, size: 26),
         ),
-        child: const Icon(Icons.add, color: Colors.white, size: 32),
       ),
     );
   }
@@ -2121,39 +3081,63 @@ class FeatureTile extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.color = AppColors.surfaceContainer,
+    this.accent,
     super.key,
   });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
   final Color color;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.surfaceContainer,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: _softShadow,
-        ),
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircleAvatar(
-              backgroundColor: color,
-              child: Icon(icon, color: AppColors.primary),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ],
+    final iconColor = accent ?? AppColors.violetLight;
+    final bgColor = accent != null
+        ? accent!.withValues(alpha: 0.14)
+        : AppColors.primary.withValues(alpha: 0.10);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        splashColor: iconColor.withValues(alpha: 0.10),
+        highlightColor: iconColor.withValues(alpha: 0.05),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.surfaceContainer,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+          ),
+          padding: const EdgeInsets.all(AppSpacing.md + 2),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(color: iconColor.withValues(alpha: 0.18), width: 0.6),
+                ),
+                child: Icon(icon, color: iconColor, size: 20),
+              ),
+              const Spacer(),
+              Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.onSurface,
+                  height: 1.3,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2179,75 +3163,140 @@ class Quadrant extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+      ),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              CircleAvatar(radius: 6, backgroundColor: color),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 20,
+              Container(
+                width: 8, height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: color,
+                  boxShadow: [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 6)],
                 ),
               ),
-              const Spacer(),
-              Flexible(
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
                 child: Text(
-                  subtitle,
-                  textAlign: TextAlign.end,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.secondary,
-                    fontWeight: FontWeight.w800,
+                  title,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    color: AppColors.onSurface,
+                    letterSpacing: -0.2,
                   ),
                 ),
               ),
             ],
           ),
-          const Divider(height: 24),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              color: AppColors.secondary,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          const Divider(height: 1),
+          const SizedBox(height: AppSpacing.sm),
           Expanded(
             child: tasks.isEmpty
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.inbox, color: AppColors.secondary, size: 42),
-                        SizedBox(height: 8),
+                        Container(
+                          width: 36, height: 36,
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceHigh,
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                          ),
+                          child: const Icon(Icons.inbox_rounded, color: AppColors.secondary, size: 18),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
                         Text(
                           'Sin tareas',
-                          style: TextStyle(color: AppColors.secondary),
+                          style: GoogleFonts.inter(color: AppColors.secondary, fontSize: 12),
                         ),
                       ],
                     ),
                   )
-                : ListView(
-                    children: tasks
-                        .map(
-                          (task) => InkWell(
-                            onTap: () => onOpenTask(task),
-                            borderRadius: BorderRadius.circular(12),
-                            child: CheckboxListTile(
-                              dense: true,
-                              value: task.completada,
-                              onChanged: (_) => onToggleTask(task.id),
-                              title: Text(
-                                task.titulo,
-                                style: TextStyle(
-                                  decoration: task.completada
-                                      ? TextDecoration.lineThrough
-                                      : null,
+                : ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: tasks.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 4),
+                    itemBuilder: (_, i) {
+                      final task = tasks[i];
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => onOpenTask(task),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                            child: Row(
+                              children: [
+                                GestureDetector(
+                                  onTap: () => onToggleTask(task.id),
+                                  child: Container(
+                                    width: 18, height: 18,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: task.completada ? AppColors.mint : Colors.transparent,
+                                      border: Border.all(
+                                        color: task.completada ? AppColors.mint : AppColors.outline,
+                                        width: 1.4,
+                                      ),
+                                    ),
+                                    child: task.completada
+                                        ? const Icon(Icons.check_rounded, size: 11, color: Colors.white)
+                                        : null,
+                                  ),
                                 ),
-                              ),
-                              subtitle: Text(task.fecha),
-                              activeColor: AppColors.mint,
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        task.titulo,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.onSurface,
+                                          decoration: task.completada ? TextDecoration.lineThrough : null,
+                                          decorationColor: AppColors.secondary,
+                                        ),
+                                      ),
+                                      Text(
+                                        task.fecha,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 11,
+                                          color: AppColors.secondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        )
-                        .toList(),
+                        ),
+                      );
+                    },
                   ),
           ),
         ],
@@ -2264,28 +3313,42 @@ class TaskPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
+      stripe: priorityColor(task.prioridad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Tarea extraida',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome_rounded, color: AppColors.violetLight, size: 14),
+              const SizedBox(width: 6),
+              Text(
+                'TAREA EXTRAÍDA',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.violetLight,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppSpacing.md),
           Text(
             task.titulo,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+            style: Theme.of(context).textTheme.titleLarge,
           ),
+          const SizedBox(height: 6),
           Text(
-            '${task.materia} • ${task.fecha} • ${task.hora}',
-            style: const TextStyle(color: AppColors.onSurfaceVariant),
+            '${task.materia}  •  ${task.fecha}  •  ${task.hora}',
+            style: GoogleFonts.inter(
+              color: AppColors.onSurfaceVariant,
+              fontSize: 12.5,
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.lg),
           PrimaryButton(
-            label: 'Agregar tarea ✓',
-            icon: Icons.check,
+            label: 'Agregar tarea',
+            icon: Icons.check_rounded,
             onTap: onAdd,
           ),
         ],
@@ -2349,27 +3412,39 @@ class _StatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = danger ? AppColors.error : AppColors.violetLight;
     return AppCard(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: danger ? AppColors.error : AppColors.primary),
-          const SizedBox(width: 12),
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+            ),
+            child: Icon(icon, color: accent, size: 18),
+          ),
+          const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: AppColors.onSurface,
+                  ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
                   body,
-                  style: TextStyle(
-                    color: danger
-                        ? AppColors.error
-                        : AppColors.onSurfaceVariant,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: danger ? AppColors.onErrorContainer : AppColors.onSurfaceVariant,
+                    height: 1.45,
                   ),
                 ),
               ],
@@ -2388,61 +3463,87 @@ class _StarterItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      contentPadding: EdgeInsets.zero,
-      leading: Container(
-        width: 24,
-        height: 24,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: AppColors.primary, width: 2),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                width: 22, height: 22,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primary.withValues(alpha: 0.10),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.4), width: 1.2),
+                ),
+                child: const Center(
+                  child: Icon(Icons.arrow_forward_rounded, size: 12, color: AppColors.violetLight),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 13.5,
+                    color: AppColors.onSurface,
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.secondary),
+            ],
+          ),
         ),
       ),
-      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
     );
   }
 }
 
-class _CardHeader extends StatelessWidget {
-  const _CardHeader({required this.title, required this.icon});
-  final String title;
-  final IconData icon;
+class _HomeSectionLabel extends StatelessWidget {
+  const _HomeSectionLabel({required this.label, this.count});
+  final String label;
+  final int? count;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(
-          title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const Spacer(),
-        Icon(icon, color: AppColors.onSurfaceVariant),
-      ],
-    );
-  }
-}
-
-class _Meta extends StatelessWidget {
-  const _Meta({required this.icon, required this.text});
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 15, color: AppColors.secondary),
-        const SizedBox(width: 3),
-        Text(
-          text,
-          style: const TextStyle(color: AppColors.secondary, fontSize: 12),
-        ),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.onSurfaceVariant,
+              letterSpacing: 0.3,
+            ),
+          ),
+          if (count != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceHigh,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+              ),
+              child: Text(
+                '$count',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.secondary,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -2496,19 +3597,34 @@ class PriorityBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = priorityColor(priority);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(999),
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 0.6),
       ),
-      child: Text(
-        priorityLabel(priority).toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-          letterSpacing: 0.4,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6, height: 6,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color,
+              boxShadow: [BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 6)],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            priorityLabel(priority).toUpperCase(),
+            style: GoogleFonts.inter(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2521,11 +3637,28 @@ class InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Chip(
-      avatar: Icon(icon, size: 18, color: AppColors.primary),
-      label: Text(text),
-      backgroundColor: AppColors.surfaceLowest,
-      side: const BorderSide(color: AppColors.outlineVariant),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: AppColors.violetLight),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.onSurface,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2547,21 +3680,46 @@ class _AlertTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: AppCard(
-        child: SwitchListTile(
-          value: value,
-          onChanged: onChanged,
-          activeThumbColor: AppColors.primaryContainer,
-          secondary: CircleAvatar(
-            backgroundColor: AppColors.surfaceContainer,
-            child: Icon(icon, color: AppColors.primary),
-          ),
-          title: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-          subtitle: Text(subtitle),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+        child: Row(
+          children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceHigh,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+              ),
+              child: Icon(icon, color: AppColors.violetLight, size: 18),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: AppColors.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: AppColors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Switch(value: value, onChanged: onChanged),
+          ],
         ),
       ),
     );
@@ -2590,39 +3748,55 @@ class NoMolestarCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                backgroundColor: config.activo
-                    ? AppColors.primaryContainer
-                    : AppColors.surfaceContainer,
+              Container(
+                width: 42, height: 42,
+                decoration: BoxDecoration(
+                  color: config.activo
+                      ? AppColors.primary.withValues(alpha: 0.16)
+                      : AppColors.surfaceHigh,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                    color: config.activo
+                        ? AppColors.primary.withValues(alpha: 0.30)
+                        : AppColors.outlineVariant,
+                    width: 0.6,
+                  ),
+                ),
                 child: Icon(
-                  config.activo ? Icons.notifications_off : Icons.nights_stay,
-                  color: config.activo ? Colors.white : AppColors.primary,
+                  config.activo ? Icons.notifications_off_rounded : Icons.nights_stay_rounded,
+                  color: config.activo ? AppColors.violetLight : AppColors.onSurfaceVariant,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Modo No molestar',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: AppColors.onSurface,
+                        letterSpacing: -0.2,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       activeNow
-                          ? 'Activo ahora: alertas en silencio'
+                          ? 'Activo ahora — alertas en silencio'
                           : 'Sin interrupciones en clases o trabajo',
-                      style: const TextStyle(color: AppColors.onSurfaceVariant),
+                      style: GoogleFonts.inter(
+                        color: AppColors.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
               ),
               Switch(
                 value: config.activo,
-                activeThumbColor: AppColors.primaryContainer,
                 onChanged: (value) => onChanged(config.copyWith(activo: value)),
               ),
             ],
@@ -2759,44 +3933,75 @@ class SettingTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
+    final accentColor = premium ? AppColors.violetLight : AppColors.violetLight;
     return SizedBox(
       width: wide || width < 620 ? double.infinity : (width - 56) / 2,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: AppCard(
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: premium
-                    ? AppColors.primaryContainer
-                    : AppColors.surfaceContainer,
-                child: Icon(
-                  icon,
-                  color: premium ? Colors.white : AppColors.primary,
-                ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          child: Container(
+            padding: const EdgeInsets.all(AppSpacing.md + 2),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceContainer,
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: Border.all(
+                color: premium
+                    ? AppColors.primary.withValues(alpha: 0.30)
+                    : AppColors.outlineVariant,
+                width: 0.6,
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 38, height: 38,
+                  decoration: BoxDecoration(
+                    color: premium
+                        ? AppColors.primary.withValues(alpha: 0.18)
+                        : AppColors.surfaceHigh,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                    border: Border.all(
+                      color: premium
+                          ? AppColors.primary.withValues(alpha: 0.30)
+                          : AppColors.outlineVariant,
+                      width: 0.6,
                     ),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(color: AppColors.secondary),
-                    ),
-                  ],
+                  ),
+                  child: Icon(icon, color: accentColor, size: 18),
                 ),
-              ),
-              const Icon(
-                Icons.chevron_right,
-                color: AppColors.onSurfaceVariant,
-              ),
-            ],
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13.5,
+                          color: AppColors.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: GoogleFonts.inter(
+                          color: AppColors.secondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.secondary,
+                  size: 18,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2819,26 +4024,37 @@ class CircleIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: large ? 78 : 64,
-        height: large ? 78 : 64,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: filled ? AppColors.primaryContainer : AppColors.surfaceHighest,
-          border: Border.all(
-            color: filled
-                ? AppColors.primaryContainer
-                : AppColors.outlineVariant,
-            width: 2,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: large ? 72 : 56,
+          height: large ? 72 : 56,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: filled
+                ? const LinearGradient(
+                    colors: [AppColors.primary, AppColors.indigo],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: filled ? null : AppColors.surfaceContainer,
+            border: Border.all(
+              color: filled
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : AppColors.outlineVariant,
+              width: filled ? 0.8 : 0.6,
+            ),
+            boxShadow: filled ? AppShadow.brand(opacity: 0.32) : null,
           ),
-        ),
-        child: Icon(
-          icon,
-          color: filled ? Colors.white : AppColors.primary,
-          size: large ? 32 : 26,
+          child: Icon(
+            icon,
+            color: filled ? Colors.white : AppColors.violetLight,
+            size: large ? 28 : 22,
+          ),
         ),
       ),
     );
@@ -2855,11 +4071,22 @@ class _ScannerPlaceholder extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFF7F2FA), Color(0xFFE6DEFF)],
+          colors: [Color(0xFF14172A), Color(0xFF0F1117)],
         ),
       ),
-      child: const Center(
-        child: Icon(Icons.description, color: AppColors.primary, size: 92),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(AppSpacing.xxl),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.12),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.25),
+              width: 0.8,
+            ),
+          ),
+          child: const Icon(Icons.document_scanner_rounded, color: AppColors.violetLight, size: 56),
+        ),
       ),
     );
   }
@@ -2883,11 +4110,11 @@ class _CornerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF6C33FF)
-      ..strokeWidth = 4
+      ..color = AppColors.violetLight
+      ..strokeWidth = 3
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
-    const len = 40.0;
+    const len = 32.0;
     canvas.drawLine(Offset.zero, const Offset(len, 0), paint);
     canvas.drawLine(Offset.zero, const Offset(0, len), paint);
     canvas.drawLine(Offset(size.width, 0), Offset(size.width - len, 0), paint);
@@ -2920,13 +4147,15 @@ class _Dot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: active ? 32 : 8,
+    return AnimatedContainer(
+      duration: AppMotion.base,
+      curve: AppMotion.standard,
+      width: active ? 28 : 6,
       height: 6,
-      margin: const EdgeInsets.symmetric(horizontal: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
-        color: active ? AppColors.primaryContainer : AppColors.surfaceVariant,
-        borderRadius: BorderRadius.circular(999),
+        color: active ? AppColors.primary : AppColors.surfaceHighest,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
     );
   }
@@ -2934,7 +4163,7 @@ class _Dot extends StatelessWidget {
 
 Color priorityColor(String priority) {
   return switch (priority) {
-    'urgente' => const Color(0xFFD32F2F),
+    'urgente' => AppColors.error,
     'alta' => AppColors.pink,
     'media' => AppColors.yellow,
     'baja' => AppColors.mint,
@@ -2960,9 +4189,10 @@ void _smartNotice(
   BuildContext context,
   String message, {
   required NoMolestarConfig config,
+  FocusTotalConfig? focusTotal,
   bool urgent = false,
 }) {
-  final silent = isNoMolestarActivo(config);
+  final silent = isNoMolestarActivo(config) || (focusTotal?.active ?? false);
   if (silent && !urgent) return;
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
@@ -3085,20 +4315,8 @@ String _shortDay(int weekday) {
   return names[weekday - 1];
 }
 
-List<BoxShadow> get _softShadow => [
-  BoxShadow(
-    color: const Color(0xFF6C33FF).withValues(alpha: 0.06),
-    blurRadius: 18,
-    offset: const Offset(0, 4),
-  ),
-];
-List<BoxShadow> get _activeShadow => [
-  BoxShadow(
-    color: const Color(0xFF6C33FF).withValues(alpha: 0.16),
-    blurRadius: 24,
-    offset: const Offset(0, 8),
-  ),
-];
+List<BoxShadow> get _softShadow => AppShadow.md;
+List<BoxShadow> get _activeShadow => AppShadow.brand(opacity: 0.32);
 
 List<TaskItem> _sampleScanTasks() => [
   TaskItem(
@@ -3185,81 +4403,593 @@ void _showPremiumModal(BuildContext context) {
     ),
     builder: (context) => SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+        padding: const EdgeInsets.fromLTRB(AppSpacing.xxl, AppSpacing.sm, AppSpacing.xxl, AppSpacing.xxxl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.diamond, size: 56, color: AppColors.primary),
-            const SizedBox(height: 16),
-            const Text(
+            Center(
+              child: Container(
+                width: 64, height: 64,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AppColors.primary, AppColors.indigo],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  boxShadow: AppShadow.brand(opacity: 0.30),
+                ),
+                child: const Icon(Icons.diamond_rounded, color: Colors.white, size: 30),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
               'ThinkLess Premium',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: AppColors.primary,
-              ),
+              style: Theme.of(context).textTheme.headlineLarge,
             ),
-            const SizedBox(height: 8),
-            const Text(
+            const SizedBox(height: AppSpacing.sm),
+            Text(
               'Desbloquea escaneos ilimitados, recordatorios inteligentes y estadísticas de estudio detalladas.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.onSurfaceVariant),
+              style: GoogleFonts.inter(
+                color: AppColors.onSurfaceVariant,
+                fontSize: 13.5,
+                height: 1.45,
+              ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: AppSpacing.xxl),
             AppCard(
               stripe: AppColors.mint,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Plan Anual',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Plan Anual',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              color: AppColors.onSurface,
+                            )),
+                        const SizedBox(height: 4),
+                        Text(
+                          '\$29.99 USD / año',
+                          style: GoogleFonts.inter(
+                            color: AppColors.mint,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  SizedBox(height: 4),
-                  Text(
-                    '\$29.99 USD / año (Ahorra un 50%)',
-                    style: TextStyle(color: AppColors.primary),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.mint.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                    ),
+                    child: Text(
+                      '−50%',
+                      style: GoogleFonts.inter(
+                        color: AppColors.mint,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             AppCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Plan Mensual',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                  ),
-                  SizedBox(height: 4),
+                children: [
+                  Text('Plan Mensual',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: AppColors.onSurface,
+                      )),
+                  const SizedBox(height: 4),
                   Text(
                     '\$4.99 USD / mes',
-                    style: TextStyle(color: AppColors.secondary),
+                    style: GoogleFonts.inter(color: AppColors.onSurfaceVariant, fontSize: 13),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 32),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              onPressed: () {
+            const SizedBox(height: AppSpacing.xxl),
+            PrimaryButton(
+              label: 'Proceder al pago seguro',
+              icon: Icons.lock_rounded,
+              onTap: () {
                 Navigator.pop(context);
                 _toast(context, 'Simulando pago... ¡Gracias por actualizar!');
               },
-              icon: const Icon(Icons.payment),
-              label: const Text(
-                'Proceder al pago seguro',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Concentración Total — banner global + card de activación + sheet
+// ═════════════════════════════════════════════════════════════════════════
+
+/// Banner persistente que aparece en el tope de toda pantalla con shell
+/// cuando Concentración Total está activa.
+class FocusTotalBanner extends StatelessWidget {
+  const FocusTotalBanner({
+    required this.config,
+    this.clock,
+    required this.onTap,
+    required this.onStop,
+    super.key,
+  });
+
+  final FocusTotalConfig config;
+  final ValueListenable<DateTime>? clock;
+  final VoidCallback onTap;
+  final VoidCallback onStop;
+
+  String _formatRemaining(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    if (h > 0) return '$h:$m:$s';
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitleStyle = GoogleFonts.inter(
+      fontSize: 11,
+      color: AppColors.violetLight,
+      fontWeight: FontWeight.w500,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    return RepaintBoundary(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.sm + 2,
+            ),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.primary.withValues(alpha: 0.22),
+                  AppColors.indigo.withValues(alpha: 0.16),
+                  AppColors.primaryContainer,
+                ],
+              ),
+              border: const Border(
+                bottom: BorderSide(color: AppColors.outlineVariant, width: 0.5),
+              ),
+            ),
+            child: Row(
+              children: [
+                _PulsingDot(),
+                const SizedBox(width: AppSpacing.sm + 2),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Concentración Total',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.onSurface,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
+                      if (config.unlimited || clock == null)
+                        Text(
+                          config.unlimited
+                              ? 'Notificaciones en silencio'
+                              : 'Restante · ${_formatRemaining(config.remaining ?? Duration.zero)}',
+                          style: subtitleStyle,
+                        )
+                      else
+                        ValueListenableBuilder<DateTime>(
+                          valueListenable: clock!,
+                          builder: (_, now, __) {
+                            final remaining = config.remainingAt(now) ?? Duration.zero;
+                            return Text(
+                              'Restante · ${_formatRemaining(remaining)}',
+                              style: subtitleStyle,
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  onTap: onStop,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceLowest.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
+                      border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.stop_rounded, size: 13, color: AppColors.onSurfaceVariant),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Salir',
+                          style: GoogleFonts.inter(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.onSurface,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PulsingDot extends StatefulWidget {
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) {
+          final t = _ctrl.value;
+          return SizedBox(
+            width: 22, height: 22,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 8 + (t * 14),
+                  height: 8 + (t * 14),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.violetLight.withValues(alpha: 0.35 * (1 - t)),
+                  ),
+                ),
+                Container(
+                  width: 8, height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.violetLight,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.violetLight.withValues(alpha: 0.6),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Card prominente en Home para activar/desactivar Concentración Total.
+class FocusTotalCard extends StatelessWidget {
+  const FocusTotalCard({
+    required this.config,
+    this.clock,
+    required this.onActivate,
+    required this.onDeactivate,
+    super.key,
+  });
+
+  final FocusTotalConfig config;
+  final ValueListenable<DateTime>? clock;
+  final VoidCallback onActivate;
+  final VoidCallback onDeactivate;
+
+  String _label(Duration? remaining) {
+    if (remaining == null) return 'Activo · sin límite';
+    final h = remaining.inHours;
+    final m = remaining.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = remaining.inSeconds.remainder(60).toString().padLeft(2, '0');
+    if (h > 0) return 'Restante · $h:$m:$s';
+    return 'Restante · $m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = config.active;
+    final subtitleStyle = GoogleFonts.inter(
+      fontSize: 12,
+      color: active ? AppColors.violetLight : AppColors.onSurfaceVariant,
+      fontWeight: FontWeight.w500,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: active ? onDeactivate : onActivate,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: AnimatedContainer(
+          duration: AppMotion.base,
+          curve: AppMotion.standard,
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            gradient: active
+                ? const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF1B1546),
+                      Color(0xFF231B4D),
+                      Color(0xFF181B2A),
+                    ],
+                  )
+                : null,
+            color: active ? null : AppColors.surfaceContainer,
+            border: Border.all(
+              color: active
+                  ? AppColors.primary.withValues(alpha: 0.45)
+                  : AppColors.outlineVariant,
+              width: 0.8,
+            ),
+            boxShadow: active ? AppShadow.brand(opacity: 0.22) : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  gradient: const LinearGradient(
+                    colors: [AppColors.primary, AppColors.indigo],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: active ? AppShadow.brand(opacity: 0.4) : null,
+                ),
+                child: Icon(
+                  active ? Icons.do_not_disturb_on_rounded : Icons.shield_moon_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Concentración Total',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.onSurface,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (active)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.mint.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(AppRadius.pill),
+                              border: Border.all(
+                                color: AppColors.mint.withValues(alpha: 0.4),
+                                width: 0.6,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 5, height: 5,
+                                  decoration: const BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: AppColors.mint,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'ACTIVO',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.mint,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    if (!active)
+                      Text(
+                        'Silencia notificaciones y reduce distracciones',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: subtitleStyle,
+                      )
+                    else if (config.unlimited || clock == null)
+                      Text(
+                        _label(config.remaining),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: subtitleStyle,
+                      )
+                    else
+                      ValueListenableBuilder<DateTime>(
+                        valueListenable: clock!,
+                        builder: (_, now, __) {
+                          return Text(
+                            _label(config.remainingAt(now)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: subtitleStyle,
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              Icon(
+                active ? Icons.power_settings_new_rounded : Icons.chevron_right_rounded,
+                color: active ? AppColors.error : AppColors.secondary,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Sheet de activación con presets de duración.
+Future<void> _showFocusTotalSheet(
+  BuildContext context, {
+  required ValueChanged<int> onActivate,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: AppColors.surfaceLowest,
+    isScrollControlled: true,
+    showDragHandle: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetCtx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xxl, AppSpacing.sm, AppSpacing.xxl, AppSpacing.xxl,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 56, height: 56,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AppColors.primary, AppColors.indigo],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  boxShadow: AppShadow.brand(opacity: 0.32),
+                ),
+                child: const Icon(Icons.shield_moon_rounded, color: Colors.white, size: 26),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Concentración Total',
+              textAlign: TextAlign.center,
+              style: Theme.of(sheetCtx).textTheme.headlineMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Silencia notificaciones, oculta alertas y mantiene un indicador discreto durante tu sesión.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                color: AppColors.onSurfaceVariant,
+                fontSize: 13,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Text(
+              'DURACIÓN',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: AppColors.secondary,
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            _FocusTotalDurationGrid(onSelect: (minutes) {
+              Navigator.pop(sheetCtx);
+              onActivate(minutes);
+            }),
+            const SizedBox(height: AppSpacing.lg),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainer,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, size: 15, color: AppColors.violetLight),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Activará automáticamente Modo No Molestar. Puedes salir en cualquier momento.',
+                      style: GoogleFonts.inter(
+                        fontSize: 11.5,
+                        color: AppColors.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -3267,4 +4997,80 @@ void _showPremiumModal(BuildContext context) {
       ),
     ),
   );
+}
+
+class _FocusTotalDurationGrid extends StatelessWidget {
+  const _FocusTotalDurationGrid({required this.onSelect});
+  final ValueChanged<int> onSelect;
+
+  static const _presets = <(String, String, int)>[
+    ('25 min', 'Pomodoro', 25),
+    ('45 min', 'Profundo', 45),
+    ('1 h', 'Sesión', 60),
+    ('2 h', 'Estudio largo', 120),
+    ('4 h', 'Maratón', 240),
+    ('∞', 'Sin límite', 0),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _presets.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: AppSpacing.sm + 2,
+        mainAxisSpacing: AppSpacing.sm + 2,
+        childAspectRatio: 1.1,
+      ),
+      itemBuilder: (_, i) {
+        final (title, subtitle, minutes) = _presets[i];
+        final unlimited = minutes == 0;
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => onSelect(minutes),
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: Container(
+              padding: const EdgeInsets.all(AppSpacing.sm + 2),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceContainer,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(
+                  color: unlimited
+                      ? AppColors.primary.withValues(alpha: 0.35)
+                      : AppColors.outlineVariant,
+                  width: 0.6,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: unlimited ? AppColors.violetLight : AppColors.onSurface,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.inter(
+                      fontSize: 10.5,
+                      color: AppColors.secondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }

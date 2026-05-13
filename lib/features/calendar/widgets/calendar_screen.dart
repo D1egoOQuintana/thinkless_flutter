@@ -604,7 +604,7 @@ class _MonthCell extends StatelessWidget {
                     shape: BoxShape.circle,
                     gradient: isToday
                         ? const LinearGradient(
-                            colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+                            colors: [AppColors.primary, AppColors.indigo],
                           )
                         : null,
                     color: isToday ? null : Colors.transparent,
@@ -806,7 +806,7 @@ class _WeekDayHeader extends StatelessWidget {
             shape: BoxShape.circle,
             gradient: isToday
                 ? const LinearGradient(
-                    colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+                    colors: [AppColors.primary, AppColors.indigo],
                   )
                 : null,
             color: isFocused && !isToday
@@ -1415,14 +1415,14 @@ class _NowIndicator extends StatelessWidget {
               height: 8,
               margin: const EdgeInsets.only(left: 0),
               decoration: const BoxDecoration(
-                color: Color(0xFFEF4444),
+                color: AppColors.error,
                 shape: BoxShape.circle,
               ),
             ),
             Expanded(
               child: Container(
                 height: 1.5,
-                color: const Color(0xFFEF4444),
+                color: AppColors.error,
               ),
             ),
           ],

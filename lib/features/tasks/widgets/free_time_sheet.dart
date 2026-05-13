@@ -371,7 +371,7 @@ class SuggestionCard extends StatelessWidget {
                 height: 42,
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+                    colors: [AppColors.primary, AppColors.indigo],
                   ),
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: _softShadow,

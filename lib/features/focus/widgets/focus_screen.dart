@@ -199,7 +199,7 @@ class _FocusScreenState extends State<FocusScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _phase == _FocusPhase.running
-          ? const Color(0xFF0E0D14)
+          ? AppColors.background
           : AppColors.background,
       body: SafeArea(
         child: AnimatedSwitcher(
@@ -330,7 +330,7 @@ class _FocusScreenState extends State<FocusScreen>
           Text(
             sessionLabel.toUpperCase(),
             style: const TextStyle(
-              color: Color(0xFF8A8896),
+              color: AppColors.secondary,
               fontWeight: FontWeight.w800,
               letterSpacing: 1.6,
               fontSize: 11,
@@ -812,7 +812,7 @@ class _StartButton extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(100),
             gradient: const LinearGradient(
-              colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+              colors: [AppColors.primary, AppColors.indigo],
             ),
             boxShadow: _activeShadow,
           ),
@@ -952,7 +952,7 @@ class _TimerRing extends StatelessWidget {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF6C33FF)
+                      color: AppColors.primary
                           .withValues(alpha: 0.18 * glow),
                       blurRadius: 60,
                       spreadRadius: 8,
@@ -972,7 +972,7 @@ class _TimerRing extends StatelessWidget {
                     strokeCap: StrokeCap.round,
                     backgroundColor: Colors.white.withValues(alpha: 0.06),
                     valueColor: const AlwaysStoppedAnimation(
-                      Color(0xFF9B6FFF),
+                      AppColors.indigo,
                     ),
                   ),
                 ),
@@ -994,7 +994,7 @@ class _TimerRing extends StatelessWidget {
                   Text(
                     '${(progress * 100).round()}%',
                     style: const TextStyle(
-                      color: Color(0xFF8A8896),
+                      color: AppColors.secondary,
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
                       letterSpacing: 0.6,
@@ -1028,7 +1028,7 @@ class _PlannedDots extends StatelessWidget {
             height: 8,
             decoration: BoxDecoration(
               color: i < done
-                  ? const Color(0xFF9B6FFF)
+                  ? AppColors.indigo
                   : i == done
                         ? Colors.white.withValues(alpha: 0.9)
                         : Colors.white.withValues(alpha: 0.15),
@@ -1059,11 +1059,11 @@ class _RunningControls extends StatelessWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: const LinearGradient(
-              colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+              colors: [AppColors.primary, AppColors.indigo],
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF6C33FF).withValues(alpha: 0.45),
+                color: AppColors.primary.withValues(alpha: 0.45),
                 blurRadius: 32,
                 spreadRadius: 4,
               ),
@@ -1125,7 +1125,7 @@ class _SparkleBadgeState extends State<_SparkleBadge>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+                  colors: [AppColors.primary, AppColors.indigo],
                 ),
                 boxShadow: _activeShadow,
               ),
@@ -1165,7 +1165,7 @@ class _PrimaryAction extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(100),
             gradient: const LinearGradient(
-              colors: [Color(0xFF6C33FF), Color(0xFF9B6FFF)],
+              colors: [AppColors.primary, AppColors.indigo],
             ),
             boxShadow: _activeShadow,
           ),
