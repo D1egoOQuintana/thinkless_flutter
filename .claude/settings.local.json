@@ -8,7 +8,10 @@
       "Bash(wc *)",
       "Bash(flutter analyze *)",
       "Bash(flutter build *)",
-      "Bash(tasklist)"
+      "Bash(tasklist)",
+      "Bash(Get-ChildItem *)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\nvj13\\\\OneDrive\\\\Imagens\\\\Desktop\\\\thinkless_flutter\\\\lib\" -Recurse | Where-Object { $_.Name -match \"\\(voice|speech|mic|audio\\)\" } | Select-Object FullName)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\nvj13\\\\OneDrive\\\\Imagens\\\\Desktop\\\\thinkless_flutter\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\\" | Select-Object Name, @{N='MB';E={[math]::Round\\($_.Length/1MB,1\\)}}, LastWriteTime)"
     ]
   }
 }

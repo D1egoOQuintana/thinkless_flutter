@@ -1383,71 +1383,224 @@ class VoiceScreen extends StatefulWidget {
   State<VoiceScreen> createState() => _VoiceScreenState();
 }
 
-class _VoiceScreenState extends State<VoiceScreen> {
+// Máquina de estados: idle | requesting | listening | busy | reconnecting | processing | result | error
+class _VoiceScreenState extends State<VoiceScreen> with WidgetsBindingObserver {
   final SpeechToText _speech = SpeechToText();
+
   String _status = 'idle';
   String _transcript = '';
-  String _error = '';
+  String _errorMsg = '';
   TaskItem? _result;
 
-  Future<void> _listen() async {
-    setState(() {
-      _status = 'listening';
-      _error = '';
-      _result = null;
-      _transcript = '';
+  Timer? _retryTimer;
+  int _retryCount = 0;
+  int _retrySecondsLeft = 0;
+  Timer? _retryCountdownTimer;
+  static const int _maxRetries = 6;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _retryTimer?.cancel();
+    _retryCountdownTimer?.cancel();
+    _speech.stop();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App vuelve al frente — reintentar si estábamos esperando mic
+      if (_status == 'busy' || _status == 'reconnecting') {
+        debugPrint('[VoiceScreen] App resumed, retrying mic...');
+        _retryTimer?.cancel();
+        _retryCountdownTimer?.cancel();
+        Future.delayed(const Duration(milliseconds: 600), () {
+          if (mounted && (_status == 'busy' || _status == 'reconnecting')) {
+            _startListening();
+          }
+        });
+      }
+    } else if (state == AppLifecycleState.paused) {
+      // App en segundo plano — pausar retries para no desperdiciar recursos
+      _retryTimer?.cancel();
+      _retryCountdownTimer?.cancel();
+    }
+  }
+
+  // Mapea códigos de error internos del engine a mensajes amigables
+  String _mapError(String errorMsg) {
+    final e = errorMsg.toLowerCase();
+    if (e.contains('audio') || e.contains('busy') || e.contains('7')) {
+      return 'El micrófono está siendo usado por otra app (Meet, Zoom, Discord). Espera o ciérrala.';
+    }
+    if (e.contains('permission') || e.contains('denied')) {
+      return 'Permiso de micrófono denegado. Ve a Configuración > Permisos > Micrófono.';
+    }
+    if (e.contains('network') || e.contains('timeout')) {
+      return 'Sin conexión a internet. Verifica tu red y vuelve a intentar.';
+    }
+    if (e.contains('no_match') || e.contains('speech_timeout')) {
+      return 'No se detectó voz. Habla más cerca del micrófono.';
+    }
+    if (e.contains('client') || e.contains('recognizer')) {
+      return 'El motor de reconocimiento falló. Reintentando...';
+    }
+    return 'Error de audio: $errorMsg';
+  }
+
+  bool _isMicBusy(String errorMsg) {
+    final e = errorMsg.toLowerCase();
+    // error_audio (código 3) = mic ocupado por otra app en Android
+    return e.contains('audio') || e.contains('busy') ||
+        e.contains('error_audio') || e == '3' || e.contains('7');
+  }
+
+  bool _isRecoverable(String errorMsg) {
+    final e = errorMsg.toLowerCase();
+    // Permanentes: permiso denegado
+    return !e.contains('permission') && !e.contains('denied');
+  }
+
+  void _scheduleRetry({bool fromBusy = false}) {
+    if (_retryCount >= _maxRetries) {
+      if (mounted) {
+        setState(() {
+          _status = 'error';
+          _errorMsg = fromBusy
+              ? 'El micrófono sigue ocupado. Cierra Meet, Zoom o Discord y vuelve a intentar.'
+              : 'No se pudo conectar el micrófono después de varios intentos.';
+        });
+      }
+      return;
+    }
+
+    // Backoff exponencial: 2s, 4s, 8s, 16s, 32s (máx 32s)
+    final delaySec = (2 * (1 << _retryCount.clamp(0, 4)));
+    _retryCount++;
+
+    if (mounted) setState(() { _status = 'reconnecting'; _retrySecondsLeft = delaySec; });
+
+    // Countdown visual
+    _retryCountdownTimer?.cancel();
+    _retryCountdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) { t.cancel(); return; }
+      setState(() { _retrySecondsLeft = (_retrySecondsLeft - 1).clamp(0, delaySec); });
+      if (_retrySecondsLeft <= 0) t.cancel();
     });
+
+    _retryTimer?.cancel();
+    _retryTimer = Timer(Duration(seconds: delaySec), () {
+      if (mounted && (_status == 'reconnecting' || _status == 'busy')) {
+        _startListening();
+      }
+    });
+
+    debugPrint('[VoiceScreen] Retry #$_retryCount en ${delaySec}s');
+  }
+
+  Future<void> _listen() async {
+    _retryCount = 0;
+    _retryTimer?.cancel();
+    _retryCountdownTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _status = 'requesting';
+        _errorMsg = '';
+        _result = null;
+        _transcript = '';
+      });
+    }
+    await _startListening();
+  }
+
+  Future<void> _startListening() async {
+    if (!mounted) return;
+
+    if (mounted) setState(() { _status = 'requesting'; _errorMsg = ''; });
+
+    // Siempre re-inicializar para limpiar estado del engine
     final available = await _speech.initialize(
       onStatus: (status) {
-        if (status == 'done' &&
-            mounted &&
-            _transcript.trim().isNotEmpty &&
-            _status == 'listening') {
-          _process();
+        if (!mounted) return;
+        debugPrint('[VoiceScreen] status: $status');
+        if ((status == 'done' || status == 'notListening') && _status == 'listening') {
+          if (_transcript.trim().isNotEmpty) {
+            _process();
+          } else {
+            // El engine terminó sin captar nada — reintentar silenciosamente
+            _scheduleRetry();
+          }
         }
       },
       onError: (error) {
         if (!mounted) return;
-        setState(() {
-          _status = 'error';
-          _error =
-              'No pude escuchar bien: ${error.errorMsg}. Usa Chrome o revisa permisos de microfono.';
-        });
+        final errStr = error.errorMsg;
+        debugPrint('[VoiceScreen] error: $errStr (permanent: ${error.permanent})');
+
+        if (_isMicBusy(errStr)) {
+          if (mounted) setState(() => _status = 'busy');
+          _scheduleRetry(fromBusy: true);
+        } else if (error.permanent || !_isRecoverable(errStr)) {
+          if (mounted) setState(() { _status = 'error'; _errorMsg = _mapError(errStr); });
+        } else {
+          // Error transitorio — reintentar
+          _scheduleRetry();
+        }
       },
     );
+
     if (!available) {
+      if (!mounted) return;
       setState(() {
         _status = 'error';
-        _error =
-            'Usa Chrome o un dispositivo con reconocimiento de voz disponible.';
+        _errorMsg = 'Reconocimiento de voz no disponible en este dispositivo.';
       });
       return;
     }
+
+    if (!mounted) return;
+    setState(() => _status = 'listening');
+
     await _speech.listen(
       localeId: 'es_419',
       listenOptions: SpeechListenOptions(
         partialResults: true,
         listenMode: ListenMode.confirmation,
+        cancelOnError: false, // No cancelar en error — permite retry sin reinicializar
       ),
       onResult: (SpeechRecognitionResult result) {
+        if (!mounted) return;
         setState(() => _transcript = result.recognizedWords);
-        if (result.finalResult) _process();
+        if (result.finalResult && _transcript.trim().isNotEmpty) {
+          _process();
+        }
       },
     );
   }
 
   Future<void> _process() async {
     if (_status == 'processing') return;
+    _retryTimer?.cancel();
+    _retryCountdownTimer?.cancel();
+
     await _speech.stop();
     final text = _transcript.trim();
+
     if (text.isEmpty) {
       setState(() {
         _status = 'error';
-        _error =
-            'No detecte texto. Intenta hablar un poco mas cerca del microfono.';
+        _errorMsg = 'No se detectó texto. Habla más cerca del micrófono.';
       });
       return;
     }
+
     setState(() => _status = 'processing');
     try {
       final task = await GroqService.extractTaskFromText(text);
@@ -1455,19 +1608,46 @@ class _VoiceScreenState extends State<VoiceScreen> {
       setState(() {
         _status = 'result';
         _result = task;
+        _retryCount = 0;
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _status = 'error';
-        _error = error.toString();
+        _errorMsg = error.toString();
       });
     }
   }
 
+  // Colores semánticos por estado
+  Color get _statusColor {
+    return switch (_status) {
+      'listening' => AppColors.mint,
+      'busy' || 'reconnecting' => const Color(0xFFF59E0B),
+      'error' => AppColors.error,
+      'processing' => AppColors.primary,
+      _ => AppColors.violetLight,
+    };
+  }
+
+  IconData get _statusIcon {
+    return switch (_status) {
+      'listening' => Icons.graphic_eq_rounded,
+      'requesting' => Icons.settings_voice_rounded,
+      'busy' => Icons.mic_off_rounded,
+      'reconnecting' => Icons.refresh_rounded,
+      'processing' => Icons.auto_awesome,
+      'error' => Icons.error_outline_rounded,
+      'result' => Icons.check_circle_rounded,
+      _ => Icons.mic_rounded,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
-    final listening = _status == 'listening';
+    final isActive = _status == 'listening';
+    final color = _statusColor;
+
     return Scaffold(
       backgroundColor: AppColors.background.withValues(alpha: 0.96),
       body: SafeArea(
@@ -1489,45 +1669,34 @@ class _VoiceScreenState extends State<VoiceScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        // Orb animado del micrófono
                         AnimatedContainer(
                           duration: AppMotion.slow,
                           curve: AppMotion.standard,
-                          width: listening ? 168 : 140,
-                          height: listening ? 168 : 140,
+                          width: isActive ? 168 : 140,
+                          height: isActive ? 168 : 140,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             gradient: RadialGradient(
-                              colors: listening
-                                  ? [
-                                      AppColors.mint.withValues(alpha: 0.18),
-                                      AppColors.surfaceContainer,
-                                    ]
-                                  : [
-                                      AppColors.primary.withValues(alpha: 0.14),
-                                      AppColors.surfaceContainer,
-                                    ],
+                              colors: [
+                                color.withValues(alpha: isActive ? 0.22 : 0.12),
+                                AppColors.surfaceContainer,
+                              ],
                             ),
                             border: Border.all(
-                              color: listening
-                                  ? AppColors.mint.withValues(alpha: 0.7)
-                                  : AppColors.outline,
-                              width: listening ? 2 : 1,
+                              color: color.withValues(alpha: isActive ? 0.75 : 0.35),
+                              width: isActive ? 2 : 1,
                             ),
-                            boxShadow: listening
-                                ? [
-                                    BoxShadow(
-                                      color: AppColors.mint.withValues(alpha: 0.35),
-                                      blurRadius: 32,
-                                      spreadRadius: 2,
-                                    ),
-                                  ]
+                            boxShadow: isActive
+                                ? [BoxShadow(color: color.withValues(alpha: 0.35), blurRadius: 32, spreadRadius: 2)]
                                 : AppShadow.brand(opacity: 0.18),
                           ),
-                          child: Icon(
-                            listening ? Icons.graphic_eq_rounded : Icons.mic_rounded,
-                            size: 56,
-                            color: listening ? AppColors.mint : AppColors.violetLight,
-                          ),
+                          child: _status == 'requesting'
+                              ? const Padding(
+                                  padding: EdgeInsets.all(44),
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Icon(_statusIcon, size: 56, color: color),
                         ),
                         const SizedBox(height: AppSpacing.xxl),
                         Text(
@@ -1540,8 +1709,16 @@ class _VoiceScreenState extends State<VoiceScreen> {
                           InfoChip(icon: Icons.notifications_off_rounded, text: 'IA en modo silencioso'),
                         ],
                         const SizedBox(height: 18),
+
+                        // Tarjetas de estado
                         if (_status == 'idle') _VoiceTips(),
-                        if (listening)
+                        if (_status == 'requesting')
+                          const _StatusCard(
+                            icon: Icons.settings_voice_rounded,
+                            title: 'Iniciando micrófono...',
+                            body: 'Preparando el motor de reconocimiento de voz.',
+                          ),
+                        if (isActive)
                           _StatusCard(
                             icon: Icons.mic,
                             title: 'Escuchando...',
@@ -1549,17 +1726,32 @@ class _VoiceScreenState extends State<VoiceScreen> {
                                 ? 'Di tu tarea completa con fecha, materia y prioridad.'
                                 : _transcript,
                           ),
+                        if (_status == 'busy')
+                          _StatusCard(
+                            icon: Icons.mic_off_rounded,
+                            title: 'Micrófono ocupado',
+                            body: 'Otra app (Meet, Zoom, Discord) está usando el micrófono. Reintentando automáticamente...',
+                            color: const Color(0xFFF59E0B),
+                          ),
+                        if (_status == 'reconnecting')
+                          _StatusCard(
+                            icon: Icons.refresh_rounded,
+                            title: 'Reconectando audio...',
+                            body: 'Reintento #$_retryCount en $_retrySecondsLeft s. '
+                                'Puedes cerrar la otra app para liberar el micrófono.',
+                            color: const Color(0xFFF59E0B),
+                          ),
                         if (_status == 'processing')
                           const _StatusCard(
                             icon: Icons.auto_awesome,
                             title: 'Procesando con IA...',
-                            body: 'Groq esta estructurando tu tarea.',
+                            body: 'Groq está estructurando tu tarea.',
                           ),
                         if (_status == 'error')
                           _StatusCard(
                             icon: Icons.error_outline,
                             title: 'Error',
-                            body: _error,
+                            body: _errorMsg,
                             danger: true,
                           ),
                         if (_status == 'result' && _result != null)
@@ -1570,21 +1762,29 @@ class _VoiceScreenState extends State<VoiceScreen> {
                       ],
                     ),
                   ),
+
+                  // Botón principal — deshabilitado durante requesting/reconnecting
                   PrimaryButton(
                     label: switch (_status) {
                       'listening' => 'Procesar ahora',
                       'processing' => 'Procesando...',
+                      'requesting' => 'Iniciando...',
+                      'reconnecting' => 'Reintentar ahora',
                       'result' => 'Hablar otra vez',
-                      _ => 'Probar ahora',
+                      _ => 'Iniciar captura',
                     },
                     icon: switch (_status) {
                       'listening' => Icons.check,
                       'processing' => Icons.hourglass_top,
+                      'reconnecting' => Icons.refresh,
                       _ => Icons.play_arrow,
                     },
-                    onTap: _status == 'processing'
-                        ? null
-                        : (_status == 'listening' ? _process : _listen),
+                    onTap: switch (_status) {
+                      'processing' || 'requesting' => null,
+                      'listening' => _process,
+                      'reconnecting' => _listen,
+                      _ => _listen,
+                    },
                   ),
                 ],
               ),
@@ -3404,15 +3604,17 @@ class _StatusCard extends StatelessWidget {
     required this.title,
     required this.body,
     this.danger = false,
+    this.color,
   });
   final IconData icon;
   final String title;
   final String body;
   final bool danger;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    final accent = danger ? AppColors.error : AppColors.violetLight;
+    final accent = color ?? (danger ? AppColors.error : AppColors.violetLight);
     return AppCard(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
