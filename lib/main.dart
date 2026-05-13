@@ -16,6 +16,12 @@ part 'features/tasks/domain/task_item.dart';
 part 'features/tasks/data/task_store.dart';
 part 'features/settings/domain/no_molestar_config.dart';
 part 'features/assistant/data/groq_service.dart';
+part 'features/tasks/widgets/quick_capture_sheet.dart';
+part 'features/tasks/widgets/priority_organizer_screen.dart';
+part 'features/tasks/widgets/free_time_sheet.dart';
+part 'features/focus/widgets/focus_screen.dart';
+part 'features/tasks/widgets/day_review_screen.dart';
+part 'features/calendar/widgets/calendar_screen.dart';
 
 void main() {
   runApp(const ThinkLessApp());
@@ -37,6 +43,62 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
   bool _loading = true;
   Map<String, dynamic> _alerts = {};
   NoMolestarConfig _noMolestar = NoMolestarConfig.defaults();
+  int _focusMinutes = 25;
+  String? _focusTaskTitle;
+  String? _focusTaskId;
+  int _focusSessionToken = 0;
+  int _focusSessionsToday = 0;
+  int _focusMinutesToday = 0;
+  String _focusStatsDate = _todayKey();
+
+  static String _todayKey() {
+    final n = DateTime.now();
+    return '${n.year}-${n.month}-${n.day}';
+  }
+
+  void _ensureFreshFocusStats() {
+    final today = _todayKey();
+    if (today != _focusStatsDate) {
+      _focusStatsDate = today;
+      _focusSessionsToday = 0;
+      _focusMinutesToday = 0;
+    }
+  }
+
+  void _onFocusSessionCompleted(int minutes) {
+    _ensureFreshFocusStats();
+    setState(() {
+      _focusSessionsToday++;
+      _focusMinutesToday += minutes;
+    });
+  }
+
+  late final ThemeData _appTheme = _buildAppTheme();
+
+  ThemeData _buildAppTheme() {
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: const ColorScheme.light(
+        primary: AppColors.primary,
+        onPrimary: AppColors.onPrimary,
+        surface: AppColors.surface,
+        onSurface: AppColors.onSurface,
+        error: AppColors.error,
+      ),
+      scaffoldBackgroundColor: AppColors.background,
+      textTheme: GoogleFonts.manropeTextTheme().copyWith(
+        titleLarge: GoogleFonts.workSans(),
+        titleMedium: GoogleFonts.workSans(),
+        titleSmall: GoogleFonts.workSans(),
+        headlineMedium: GoogleFonts.workSans(),
+        headlineSmall: GoogleFonts.workSans(),
+        headlineLarge: GoogleFonts.workSans(),
+        displayLarge: GoogleFonts.workSans(),
+        displayMedium: GoogleFonts.workSans(),
+        displaySmall: GoogleFonts.workSans(),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -80,6 +142,43 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
     setState(() {
       _tasks = next;
       _view = AppView.home;
+    });
+    await TaskStore.saveTasks(next);
+  }
+
+  void _startFocus({required int minutes, String? title, String? taskId}) {
+    setState(() {
+      _focusMinutes = minutes;
+      _focusTaskTitle = title;
+      _focusTaskId = taskId;
+      _focusSessionToken++;
+    });
+    _navigate(AppView.focus);
+  }
+
+  Future<void> _rescheduleTask(String id, DateTime newDate) async {
+    final iso =
+        '${newDate.year.toString().padLeft(4, '0')}-${newDate.month.toString().padLeft(2, '0')}-${newDate.day.toString().padLeft(2, '0')}';
+    final next = _sortTasks(
+      _tasks.map((task) {
+        if (task.id != id) return task;
+        return task.copyWith(fecha: iso);
+      }).toList(),
+    );
+    setState(() => _tasks = next);
+    await TaskStore.saveTasks(next);
+  }
+
+  Future<void> _updatePriority(String id, String priority) async {
+    final next = _sortTasks(
+      _tasks.map((task) {
+        if (task.id != id) return task;
+        return task.copyWith(prioridad: priority);
+      }).toList(),
+    );
+    setState(() {
+      _tasks = next;
+      _selectedTask = next.where((task) => task.id == id).firstOrNull;
     });
     await TaskStore.saveTasks(next);
   }
@@ -194,7 +293,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
   }
 
   List<TaskItem> _sortTasks(List<TaskItem> tasks) {
-    final rank = {'alta': 0, 'media': 1, 'baja': 2};
+    final rank = {'urgente': 0, 'alta': 1, 'media': 2, 'baja': 3};
     tasks.sort((a, b) {
       if (a.completada != b.completada) return a.completada ? 1 : -1;
       final priority = (rank[a.prioridad] ?? 1).compareTo(
@@ -208,34 +307,11 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = ThemeData(
-      useMaterial3: true,
-      colorScheme: const ColorScheme.light(
-        primary: AppColors.primary,
-        onPrimary: AppColors.onPrimary,
-        surface: AppColors.surface,
-        onSurface: AppColors.onSurface,
-        error: AppColors.error,
-      ),
-      scaffoldBackgroundColor: AppColors.background,
-      textTheme: GoogleFonts.manropeTextTheme().copyWith(
-        titleLarge: GoogleFonts.workSans(),
-        titleMedium: GoogleFonts.workSans(),
-        titleSmall: GoogleFonts.workSans(),
-        headlineMedium: GoogleFonts.workSans(),
-        headlineSmall: GoogleFonts.workSans(),
-        headlineLarge: GoogleFonts.workSans(),
-        displayLarge: GoogleFonts.workSans(),
-        displayMedium: GoogleFonts.workSans(),
-        displaySmall: GoogleFonts.workSans(),
-      ),
-    );
-
     return MaterialApp(
       navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'ThinkLess',
-      theme: theme,
+      theme: _appTheme,
       home: _loading
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : AnimatedSwitcher(
@@ -257,6 +333,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
           onOpenTask: _openTask,
           onToggleTask: _toggleTask,
           onNavigate: _navigate,
+          onShowFreeTime: _showFreeTimeSheet,
         ),
       ),
       AppView.calendar => ShellScreen(
@@ -273,7 +350,19 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       AppView.focus => ShellScreen(
         active: AppView.focus,
         onNavigate: _navigate,
-        child: FocusScreen(noMolestar: _noMolestar),
+        child: FocusScreen(
+          key: ValueKey(_focusSessionToken),
+          noMolestar: _noMolestar,
+          initialMinutes: _focusMinutes,
+          initialTaskTitle: _focusTaskTitle,
+          initialTaskId: _focusTaskId,
+          tasks: _tasks,
+          sessionsToday: _focusSessionsToday,
+          minutesToday: _focusMinutesToday,
+          onSessionCompleted: _onFocusSessionCompleted,
+          onMarkTaskDone: _toggleTask,
+          onExit: () => _navigate(AppView.home),
+        ),
       ),
       AppView.matrix => ShellScreen(
         active: AppView.matrix,
@@ -316,7 +405,42 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
         onToggle: _toggleTask,
         onDelete: _deleteTask,
       ),
+      AppView.priorities => PriorityOrganizerScreen(
+        tasks: _tasks,
+        onUpdatePriority: _updatePriority,
+        onBack: () => _navigate(_previousView),
+      ),
+      AppView.review => DayReviewScreen(
+        tasks: _tasks,
+        onToggleTask: _toggleTask,
+        onOpenTask: _openTask,
+        onReschedule: _rescheduleTask,
+        onBack: () => _navigate(AppView.home),
+      ),
     };
+  }
+
+  void _showFreeTimeSheet() {
+    final ctx = _navigatorKey.currentContext;
+    if (ctx == null) return;
+    showModalBottomSheet<void>(
+      context: ctx,
+      backgroundColor: AppColors.surfaceLowest,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) => FreeTimeSheet(
+        tasks: _tasks,
+        onStartFocus: (task, minutes) {
+          Navigator.pop(context);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _startFocus(minutes: minutes, title: task?.titulo);
+          });
+        },
+      ),
+    );
   }
 
   void _showAddSheet() {
@@ -325,66 +449,28 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
     showModalBottomSheet<void>(
       context: ctx,
       backgroundColor: AppColors.surfaceLowest,
+      isScrollControlled: true,
       showDragHandle: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Agregar tarea',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 14),
-              _SheetAction(
-                icon: Icons.mic,
-                title: 'Voz con IA',
-                subtitle: 'Habla y ThinkLess extrae la tarea.',
-                onTap: () {
-                  Navigator.pop(context);
-                  _navigate(AppView.voice);
-                },
-              ),
-              _SheetAction(
-                icon: Icons.document_scanner,
-                title: 'Escanear con IA',
-                subtitle: 'Analiza una foto o captura de pantalla.',
-                onTap: () {
-                  Navigator.pop(context);
-                  _navigate(AppView.scanner);
-                },
-              ),
-              _SheetAction(
-                icon: Icons.add_task,
-                title: 'Tarea de ejemplo',
-                subtitle: 'Crea una tarea rapida para probar la app.',
-                onTap: () {
-                  Navigator.pop(context);
-                  _addTask(
-                    TaskItem(
-                      id: DateTime.now().microsecondsSinceEpoch.toString(),
-                      titulo: 'Repasar apuntes de Calculo',
-                      materia: 'Calculo',
-                      fecha: 'Mañana',
-                      hora: '16:00',
-                      prioridad: 'media',
-                      tipo: 'lectura',
-                      completada: false,
-                      fechaCreacion: DateTime.now(),
-                      notas: 'Tarea creada manualmente como ejemplo.',
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
+      builder: (context) => QuickCaptureSheet(
+        onAddTask: (task) {
+          Navigator.pop(context);
+          WidgetsBinding.instance.addPostFrameCallback((_) => _addTask(task));
+        },
+        onOpenVoice: () {
+          Navigator.pop(context);
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _navigate(AppView.voice),
+          );
+        },
+        onOpenScanner: () {
+          Navigator.pop(context);
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _navigate(AppView.scanner),
+          );
+        },
       ),
     );
   }
@@ -542,6 +628,7 @@ class HomeScreen extends StatelessWidget {
     required this.onOpenTask,
     required this.onToggleTask,
     required this.onNavigate,
+    required this.onShowFreeTime,
     super.key,
   });
 
@@ -549,6 +636,7 @@ class HomeScreen extends StatelessWidget {
   final ValueChanged<TaskItem> onOpenTask;
   final ValueChanged<String> onToggleTask;
   final ValueChanged<AppView> onNavigate;
+  final VoidCallback onShowFreeTime;
 
   @override
   Widget build(BuildContext context) {
@@ -647,6 +735,24 @@ class HomeScreen extends StatelessWidget {
                       icon: Icons.grid_view,
                       label: 'Matriz Eisenhower',
                       onTap: () => onNavigate(AppView.matrix),
+                    ),
+                    FeatureTile(
+                      icon: Icons.flag_rounded,
+                      label: 'Priorizar',
+                      color: const Color(0xFFFFE0E0),
+                      onTap: () => onNavigate(AppView.priorities),
+                    ),
+                    FeatureTile(
+                      icon: Icons.hourglass_top_rounded,
+                      label: 'Tiempo libre',
+                      color: const Color(0xFFD0F0E8),
+                      onTap: onShowFreeTime,
+                    ),
+                    FeatureTile(
+                      icon: Icons.nightlight_round,
+                      label: 'Revisión del día',
+                      color: const Color(0xFFE5DFFF),
+                      onTap: () => onNavigate(AppView.review),
                     ),
                     FeatureTile(
                       icon: Icons.timer,
@@ -1179,756 +1285,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 }
 
-enum CalendarMode { month, week, day }
-
-class CalendarScreen extends StatefulWidget {
-  const CalendarScreen({
-    required this.tasks,
-    required this.onOpenTask,
-    required this.onToggleTask,
-    required this.noMolestar,
-    super.key,
-  });
-  final List<TaskItem> tasks;
-  final ValueChanged<TaskItem> onOpenTask;
-  final ValueChanged<String> onToggleTask;
-  final NoMolestarConfig noMolestar;
-
-  @override
-  State<CalendarScreen> createState() => _CalendarScreenState();
-}
-
-class _CalendarScreenState extends State<CalendarScreen> {
-  CalendarMode _mode = CalendarMode.month;
-  DateTime _focusedDay = DateTime.now();
-
-  List<TaskItem> get tasks => widget.tasks;
-  ValueChanged<TaskItem> get onOpenTask => widget.onOpenTask;
-  ValueChanged<String> get onToggleTask => widget.onToggleTask;
-  VoidCallback get onFab => () {};
-
-  List<TaskItem> get _dayTasks => _tasksForDay(_focusedDay);
-
-  List<TaskItem> _tasksForDay(DateTime day) {
-    final filtered = widget.tasks
-        .where((task) => _sameDay(_taskDate(task), day))
-        .toList();
-    filtered.sort((a, b) => _taskMinutes(a).compareTo(_taskMinutes(b)));
-    return filtered;
-  }
-
-  Widget _buildAdvancedCalendar(BuildContext context) {
-    final silent = isNoMolestarActivo(widget.noMolestar);
-    return AppScaffold(
-      title: '${_monthName(_focusedDay.month)} / Hoy',
-      leading: Icons.menu,
-      trailing: Icons.more_vert,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: SegmentedButton<CalendarMode>(
-                        segments: const [
-                          ButtonSegment(
-                            value: CalendarMode.month,
-                            label: Text('Mes'),
-                          ),
-                          ButtonSegment(
-                            value: CalendarMode.week,
-                            label: Text('Semana'),
-                          ),
-                          ButtonSegment(
-                            value: CalendarMode.day,
-                            label: Text('Día'),
-                          ),
-                        ],
-                        selected: {_mode},
-                        onSelectionChanged: (value) =>
-                            setState(() => _mode = value.first),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    OutlinedButton(
-                      onPressed: () =>
-                          setState(() => _focusedDay = DateTime.now()),
-                      child: const Text('Hoy'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Text(
-                      '${_dayTasks.length} tareas hoy',
-                      style: const TextStyle(
-                        color: AppColors.secondary,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (silent)
-                      const Chip(
-                        avatar: Icon(Icons.notifications_off, size: 16),
-                        label: Text('Silencio'),
-                        backgroundColor: AppColors.surfaceContainer,
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              child: switch (_mode) {
-                CalendarMode.month => _MonthCalendar(
-                  key: const ValueKey('month'),
-                  focusedDay: _focusedDay,
-                  tasks: widget.tasks,
-                  onDaySelected: (day) => setState(() {
-                    _focusedDay = day;
-                    _mode = CalendarMode.day;
-                  }),
-                ),
-                CalendarMode.week => _WeekCalendar(
-                  key: const ValueKey('week'),
-                  focusedDay: _focusedDay,
-                  tasks: widget.tasks,
-                  onTaskTap: widget.onOpenTask,
-                ),
-                CalendarMode.day => _DayCalendar(
-                  key: const ValueKey('day'),
-                  day: _focusedDay,
-                  tasks: _dayTasks,
-                  onTaskTap: widget.onOpenTask,
-                  onToggleTask: widget.onToggleTask,
-                ),
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (DateTime.now().microsecondsSinceEpoch >= 0) {
-      return _buildAdvancedCalendar(context);
-    }
-    final visible = tasks.isEmpty ? _sampleAgendaTasks() : tasks;
-    return AppScaffold(
-      title: 'Mayo / Hoy',
-      leading: Icons.menu,
-      trailing: Icons.more_vert,
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-        children: [
-          AppCard(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                DayPill('LUN', '2'),
-                DayPill('MAR', '3'),
-                DayPill('MIE', '4'),
-                DayPill('JUE', '5', active: true),
-                DayPill('VIE', '6'),
-                DayPill('SAB', '7'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Agenda del Día',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          ...visible.map(
-            (task) => TaskCard(
-              task: task,
-              onTap: () => onOpenTask(task),
-              onToggle: () => onToggleTask(task.id),
-              compact: true,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Container(
-            height: 150,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              color: AppColors.surfaceContainer,
-              gradient: const LinearGradient(
-                colors: [AppColors.surfaceContainer, Color(0xFFE6DEFF)],
-              ),
-              boxShadow: _softShadow,
-            ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Mantén el Ritmo',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Text(
-                    '${visible.where((task) => !task.completada).length} tareas pendientes hoy',
-                    style: const TextStyle(color: AppColors.onSurfaceVariant),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: GradientFab(onTap: onFab),
-    );
-  }
-}
-
-class _MonthCalendar extends StatelessWidget {
-  const _MonthCalendar({
-    required this.focusedDay,
-    required this.tasks,
-    required this.onDaySelected,
-    super.key,
-  });
-
-  final DateTime focusedDay;
-  final List<TaskItem> tasks;
-  final ValueChanged<DateTime> onDaySelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final first = DateTime(focusedDay.year, focusedDay.month);
-    final startOffset = first.weekday - 1;
-    final start = first.subtract(Duration(days: startOffset));
-    final days = List.generate(42, (index) => start.add(Duration(days: index)));
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-      children: [
-        AppCard(
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: ['LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB', 'DOM']
-                    .map(
-                      (day) => Expanded(
-                        child: Center(
-                          child: Text(
-                            day,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.secondary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 8),
-              GridView.builder(
-                itemCount: days.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  mainAxisSpacing: 6,
-                  crossAxisSpacing: 6,
-                ),
-                itemBuilder: (context, index) {
-                  final day = days[index];
-                  final dayTasks = tasks
-                      .where((task) => _sameDay(_taskDate(task), day))
-                      .toList();
-                  final isToday = _sameDay(day, DateTime.now());
-                  final inMonth = day.month == focusedDay.month;
-                  return InkWell(
-                    onTap: () => onDaySelected(day),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: isToday
-                            ? AppColors.primaryContainer
-                            : (inMonth
-                                  ? AppColors.surfaceLowest
-                                  : AppColors.surfaceContainer),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: AppColors.outlineVariant.withValues(
-                            alpha: 0.45,
-                          ),
-                        ),
-                      ),
-                      padding: const EdgeInsets.all(4),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            '${day.day}',
-                            style: TextStyle(
-                              color: isToday
-                                  ? Colors.white
-                                  : (inMonth
-                                        ? AppColors.onSurface
-                                        : AppColors.secondary),
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          if (dayTasks.isNotEmpty)
-                            Wrap(
-                              spacing: 2,
-                              children: dayTasks
-                                  .take(3)
-                                  .map(
-                                    (task) => CircleAvatar(
-                                      radius: 3,
-                                      backgroundColor: priorityColor(
-                                        task.prioridad,
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _WeekCalendar extends StatelessWidget {
-  const _WeekCalendar({
-    required this.focusedDay,
-    required this.tasks,
-    required this.onTaskTap,
-    super.key,
-  });
-
-  final DateTime focusedDay;
-  final List<TaskItem> tasks;
-  final ValueChanged<TaskItem> onTaskTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final monday = focusedDay.subtract(Duration(days: focusedDay.weekday - 1));
-    final days = List.generate(7, (index) => monday.add(Duration(days: index)));
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(
-          width: 860,
-          child: AppCard(
-            child: Column(
-              children: [
-                Row(
-                  children: days
-                      .map(
-                        (day) => Expanded(
-                          child: Center(
-                            child: Text(
-                              '${_shortDay(day.weekday)} ${day.day}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: _sameDay(day, DateTime.now())
-                                    ? AppColors.primary
-                                    : AppColors.secondary,
-                              ),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-                const SizedBox(height: 10),
-                ...List.generate(15, (hourIndex) {
-                  final hour = 8 + hourIndex;
-                  return SizedBox(
-                    height: 64,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 44,
-                          child: Text(
-                            '${hour.toString().padLeft(2, '0')}:00',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.secondary,
-                            ),
-                          ),
-                        ),
-                        ...days.map((day) {
-                          final blocks = tasks
-                              .where(
-                                (task) =>
-                                    _sameDay(_taskDate(task), day) &&
-                                    _taskHour(task) == hour,
-                              )
-                              .toList();
-                          return Expanded(
-                            child: Container(
-                              margin: const EdgeInsets.all(2),
-                              decoration: BoxDecoration(
-                                border: Border.all(
-                                  color: AppColors.outlineVariant.withValues(
-                                    alpha: 0.35,
-                                  ),
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Column(
-                                children: blocks
-                                    .map(
-                                      (task) => _CalendarBlock(
-                                        task: task,
-                                        onTap: () => onTaskTap(task),
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  );
-                }),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DayCalendar extends StatelessWidget {
-  const _DayCalendar({
-    required this.day,
-    required this.tasks,
-    required this.onTaskTap,
-    required this.onToggleTask,
-    super.key,
-  });
-
-  final DateTime day;
-  final List<TaskItem> tasks;
-  final ValueChanged<TaskItem> onTaskTap;
-  final ValueChanged<String> onToggleTask;
-
-  @override
-  Widget build(BuildContext context) {
-    final timed = tasks.where((task) => task.hora != 'Sin hora').toList();
-    final untimed = tasks.where((task) => task.hora == 'Sin hora').toList();
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-      children: [
-        Text(
-          'Agenda del Día',
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 10),
-        if (tasks.isEmpty)
-          const EmptyStateCard(
-            icon: Icons.event_available,
-            title: 'No hay tareas este día',
-            body:
-                'Cuando agregues tareas con fecha, aparecerán aquí automáticamente.',
-          )
-        else ...[
-          ...List.generate(15, (hourIndex) {
-            final hour = 8 + hourIndex;
-            final hourTasks = timed
-                .where((task) => _taskHour(task) == hour)
-                .toList();
-            return _TimelineHour(
-              hour: hour,
-              tasks: hourTasks,
-              onTaskTap: onTaskTap,
-              onToggleTask: onToggleTask,
-            );
-          }),
-          if (untimed.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            const Text(
-              'Sin horario',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                color: AppColors.secondary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...untimed.map(
-              (task) => TaskCard(
-                task: task,
-                onTap: () => onTaskTap(task),
-                onToggle: () => onToggleTask(task.id),
-                compact: true,
-              ),
-            ),
-          ],
-        ],
-      ],
-    );
-  }
-}
-
-class _TimelineHour extends StatelessWidget {
-  const _TimelineHour({
-    required this.hour,
-    required this.tasks,
-    required this.onTaskTap,
-    required this.onToggleTask,
-  });
-  final int hour;
-  final List<TaskItem> tasks;
-  final ValueChanged<TaskItem> onTaskTap;
-  final ValueChanged<String> onToggleTask;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 52,
-          child: Text(
-            '${hour.toString().padLeft(2, '0')}:00',
-            style: const TextStyle(color: AppColors.secondary, fontSize: 12),
-          ),
-        ),
-        Expanded(
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 54),
-            margin: const EdgeInsets.only(bottom: 8),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppColors.outlineVariant)),
-            ),
-            child: Column(
-              children: tasks
-                  .map(
-                    (task) => TaskCard(
-                      task: task,
-                      onTap: () => onTaskTap(task),
-                      onToggle: () => onToggleTask(task.id),
-                      compact: true,
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CalendarBlock extends StatelessWidget {
-  const _CalendarBlock({required this.task, required this.onTap});
-  final TaskItem task;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.all(2),
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: priorityColor(task.prioridad).withValues(alpha: 0.16),
-          borderRadius: BorderRadius.circular(8),
-          border: Border(
-            left: BorderSide(color: priorityColor(task.prioridad), width: 3),
-          ),
-        ),
-        child: Text(
-          task.titulo,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
-        ),
-      ),
-    );
-  }
-}
-
-class FocusScreen extends StatefulWidget {
-  const FocusScreen({required this.noMolestar, super.key});
-  final NoMolestarConfig noMolestar;
-
-  @override
-  State<FocusScreen> createState() => _FocusScreenState();
-}
-
-class _FocusScreenState extends State<FocusScreen> {
-  static const total = 25 * 60;
-  Timer? _timer;
-  int _seconds = total;
-  bool _running = false;
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  void _toggle() {
-    if (_running) {
-      _timer?.cancel();
-      setState(() => _running = false);
-      return;
-    }
-    setState(() => _running = true);
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_seconds <= 1) {
-        timer.cancel();
-        if (!isNoMolestarActivo(widget.noMolestar)) {
-          SystemSound.play(SystemSoundType.alert);
-        }
-        setState(() {
-          _seconds = 0;
-          _running = false;
-        });
-        _smartNotice(
-          context,
-          'Pomodoro completado. Buen bloque de enfoque.',
-          config: widget.noMolestar,
-          urgent: true,
-        );
-        return;
-      }
-      setState(() => _seconds--);
-    });
-  }
-
-  void _reset() {
-    _timer?.cancel();
-    setState(() {
-      _seconds = total;
-      _running = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = 1 - (_seconds / total);
-    final minutes = (_seconds ~/ 60).toString().padLeft(2, '0');
-    final seconds = (_seconds % 60).toString().padLeft(2, '0');
-    return AppScaffold(
-      title: 'Enfoque ›',
-      leading: Icons.menu,
-      trailing: Icons.more_vert,
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 40, 20, 120),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 260,
-                height: 260,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 5,
-                      backgroundColor: AppColors.surfaceHigh,
-                      color: AppColors.primary,
-                    ),
-                    Container(
-                      width: 238,
-                      height: 238,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: AppColors.surfaceLowest,
-                        boxShadow: _softShadow,
-                      ),
-                    ),
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          '$minutes:$seconds',
-                          style: const TextStyle(
-                            fontSize: 52,
-                            fontWeight: FontWeight.w300,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'SESIÓN 1 DE 4',
-                          style: TextStyle(
-                            color: AppColors.secondary,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Positioned(
-                      right: 0,
-                      top: 10,
-                      child: CircleAvatar(
-                        radius: 36,
-                        backgroundColor: AppColors.surfaceContainer,
-                        child: Icon(
-                          Icons.auto_awesome,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 64),
-              SizedBox(
-                width: 280,
-                child: PrimaryButton(
-                  label: _running ? 'Pausar' : 'Iniciar',
-                  icon: _running ? Icons.pause : Icons.play_arrow,
-                  onTap: _toggle,
-                ),
-              ),
-              const SizedBox(height: 20),
-              OutlinedButton.icon(
-                onPressed: _reset,
-                icon: const Icon(Icons.skip_next),
-                label: const Text('Saltar'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class MatrixScreen extends StatelessWidget {
   const MatrixScreen({
@@ -1961,7 +1317,12 @@ class MatrixScreen extends StatelessWidget {
             title: 'Hacer Ya',
             subtitle: 'Urgente & Importante',
             color: AppColors.pink,
-            tasks: source.where((task) => task.prioridad == 'alta').toList(),
+            tasks: source
+                .where(
+                  (task) =>
+                      task.prioridad == 'urgente' || task.prioridad == 'alta',
+                )
+                .toList(),
             onOpenTask: onOpenTask,
             onToggleTask: onToggleTask,
           ),
@@ -2933,33 +2294,6 @@ class TaskPreview extends StatelessWidget {
   }
 }
 
-class _SheetAction extends StatelessWidget {
-  const _SheetAction({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: AppColors.surfaceContainer,
-        child: Icon(icon, color: AppColors.primary),
-      ),
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-      subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
-    );
-  }
-}
-
 class _VoiceTips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -3168,11 +2502,12 @@ class PriorityBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        priority == 'alta' ? 'Urgente' : priority.toUpperCase(),
+        priorityLabel(priority).toUpperCase(),
         style: const TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.w800,
           fontSize: 12,
+          letterSpacing: 0.4,
         ),
       ),
     );
@@ -3599,11 +2934,21 @@ class _Dot extends StatelessWidget {
 
 Color priorityColor(String priority) {
   return switch (priority) {
+    'urgente' => const Color(0xFFD32F2F),
     'alta' => AppColors.pink,
+    'media' => AppColors.yellow,
     'baja' => AppColors.mint,
     _ => AppColors.primary,
   };
 }
+
+String priorityLabel(String priority) => switch (priority) {
+  'urgente' => 'Urgente',
+  'alta' => 'Alta',
+  'media' => 'Media',
+  'baja' => 'Baja',
+  _ => priority,
+};
 
 void _toast(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(
@@ -3628,7 +2973,18 @@ void _smartNotice(
   );
 }
 
+final Expando<DateTime> _taskDateCache = Expando<DateTime>('taskDate');
+final Expando<int> _taskMinutesCache = Expando<int>('taskMinutes');
+
 DateTime _taskDate(TaskItem task) {
+  final cached = _taskDateCache[task];
+  if (cached != null) return cached;
+  final computed = _computeTaskDate(task);
+  _taskDateCache[task] = computed;
+  return computed;
+}
+
+DateTime _computeTaskDate(TaskItem task) {
   final raw = task.fecha.toLowerCase().trim();
   final now = DateTime.now();
   if (raw.contains('hoy')) return DateTime(now.year, now.month, now.day);
@@ -3682,8 +3038,17 @@ bool _sameDay(DateTime a, DateTime b) =>
 int _taskHour(TaskItem task) => _taskMinutes(task) ~/ 60;
 
 int _taskMinutes(TaskItem task) {
+  final cached = _taskMinutesCache[task];
+  if (cached != null) return cached;
+  final computed = _computeTaskMinutes(task);
+  _taskMinutesCache[task] = computed;
+  return computed;
+}
+
+int _computeTaskMinutes(TaskItem task) {
+  if (task.hora == 'Sin hora') return 24 * 60;
   final match = RegExp(r'(\d{1,2}):?(\d{2})?').firstMatch(task.hora);
-  if (match == null || task.hora == 'Sin hora') return 24 * 60;
+  if (match == null) return 24 * 60;
   final hour = int.tryParse(match.group(1) ?? '') ?? 23;
   final minute = int.tryParse(match.group(2) ?? '0') ?? 0;
   return hour * 60 + minute;
@@ -3769,42 +3134,6 @@ List<TaskItem> _sampleScanTasks() => [
     prioridad: 'baja',
     tipo: 'otro',
     completada: false,
-    fechaCreacion: DateTime.now(),
-  ),
-];
-
-List<TaskItem> _sampleAgendaTasks() => [
-  TaskItem(
-    id: 'agenda1',
-    titulo: 'Entrega Ensayo Historia',
-    materia: 'Historia',
-    fecha: 'Hoy',
-    hora: '10:00',
-    prioridad: 'alta',
-    tipo: 'tarea',
-    completada: false,
-    fechaCreacion: DateTime.now(),
-  ),
-  TaskItem(
-    id: 'agenda2',
-    titulo: 'Lectura Cap 4-5 Biologia',
-    materia: 'Biologia',
-    fecha: 'Hoy',
-    hora: '14:00',
-    prioridad: 'media',
-    tipo: 'lectura',
-    completada: false,
-    fechaCreacion: DateTime.now(),
-  ),
-  TaskItem(
-    id: 'agenda3',
-    titulo: 'Reunion Grupo Proyecto',
-    materia: 'Proyecto',
-    fecha: 'Hoy',
-    hora: '08:30',
-    prioridad: 'baja',
-    tipo: 'proyecto',
-    completada: true,
     fechaCreacion: DateTime.now(),
   ),
 ];

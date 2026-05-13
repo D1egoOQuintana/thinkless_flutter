@@ -95,6 +95,9 @@ class TaskItem {
 
   static String _normalizePriority(String? value) {
     final normalized = (value ?? 'media').toLowerCase().trim();
+    if (normalized.contains('urgente') || normalized == 'critica') {
+      return 'urgente';
+    }
     if (normalized.contains('alta')) return 'alta';
     if (normalized.contains('baja')) return 'baja';
     return 'media';

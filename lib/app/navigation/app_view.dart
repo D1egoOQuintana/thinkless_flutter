@@ -11,4 +11,6 @@ enum AppView {
   voice,
   scanner,
   detail,
+  priorities,
+  review,
 }

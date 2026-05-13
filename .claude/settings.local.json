@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\nvj13\\\\OneDrive\\\\Imagens\\\\Desktop\\\\thinkless_flutter\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "PowerShell(head *)",
+      "Bash(wc *)",
+      "Bash(flutter analyze *)"
+    ]
+  }
+}
