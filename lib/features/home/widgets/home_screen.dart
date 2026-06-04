@@ -41,8 +41,12 @@ class HomeScreen extends StatelessWidget {
     final completed = tasks.where((t) => t.completada).length;
     final total     = tasks.length;
 
-    final urgent    = pending.where((t) => t.prioridad == 'urgente').toList();
     final suggested = pending.isNotEmpty ? pending.first : null;
+    final allUrgent = pending.where((t) => t.prioridad == 'urgente').toList();
+    // Evita repetir la tarea sugerida en "Urgentes" cuando hay otra urgente.
+    final urgent = allUrgent.length > 1
+        ? allUrgent.where((t) => t.id != suggested?.id).toList()
+        : allUrgent;
 
     // "Tu día": pendientes no urgentes (ordenadas por hora) + completadas al final.
     final dayTasks = [
@@ -66,7 +70,7 @@ class HomeScreen extends StatelessWidget {
               )
             : ListView(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.xl, 0, AppSpacing.xl, 130,
+                  AppSpacing.xl, 0, AppSpacing.xl, 148,
                 ),
                 children: [
                   // ── Top bar "Hoy" ──────────────────────────────────────────
@@ -688,7 +692,7 @@ class _TimelineRow extends StatelessWidget {
                         color: AppColors.surfaceLowest,
                         borderRadius: BorderRadius.circular(AppRadius.xxl),
                         border: Border.all(
-                          color: AppColors.outlineVariant.withValues(alpha: 0.4),
+                          color: AppColors.outlineVariant.withValues(alpha: 0.7),
                         ),
                         boxShadow: AppShadow.sm,
                       ),
