@@ -11,7 +11,16 @@
       "Bash(tasklist)",
       "Bash(Get-ChildItem *)",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\nvj13\\\\OneDrive\\\\Imagens\\\\Desktop\\\\thinkless_flutter\\\\lib\" -Recurse | Where-Object { $_.Name -match \"\\(voice|speech|mic|audio\\)\" } | Select-Object FullName)",
-      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\nvj13\\\\OneDrive\\\\Imagens\\\\Desktop\\\\thinkless_flutter\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\\" | Select-Object Name, @{N='MB';E={[math]::Round\\($_.Length/1MB,1\\)}}, LastWriteTime)"
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\nvj13\\\\OneDrive\\\\Imagens\\\\Desktop\\\\thinkless_flutter\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\\" | Select-Object Name, @{N='MB';E={[math]::Round\\($_.Length/1MB,1\\)}}, LastWriteTime)",
+      "Bash(python -c ' *)",
+      "mcp__stitch__list_projects",
+      "mcp__stitch__get_project",
+      "mcp__stitch__list_screens",
+      "Read(//c/Users/nvj13/.claude/projects/C--Users-nvj13-OneDrive-Imagens-Desktop-thinkless-flutter/**)",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzAwMDY1MzRkZjFhZTAzZjkwNTQ5ZjRiNzgzMzhhMjExEgsSBxC8ss6dtRUYAZIBIwoKcHJvamVjdF9pZBIVQhM1ODUxMzAwMjc2OTU1ODAwNzYy&filename=&opi=89354086\" -o home_today.html)",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzAwMDY1MzRkZjEyNmNkZTcwNTQ5ZTIyMTJlMWJiNjYwEgsSBxC8ss6dtRUYAZIBIwoKcHJvamVjdF9pZBIVQhM1ODUxMzAwMjc2OTU1ODAwNzYy&filename=&opi=89354086\" -o home_empty.html)",
+      "Bash(curl -sL \"https://lh3.googleusercontent.com/aida/AP1WRLseimmnJ0KLIebXUE-tZUm-Dk8F9k7zSsoV7SrGJ3s1Gn3wXyS839TDK7xa8PjQWuNAS-ELoFkteac5DPbITvQ2nO6F2Um_9AxhGqs0VNBPlyc3HCVLOfjyO-ieHlYlWunaPDcJNckSsA8Ckn7BHIebPy9VxOc_qkV8pruCUb695rqKnaKCeC1ngjXkQ6ftUBHFd__rbzXi2ejUv_ehbTB4LTcmlacDSxzlFpI4GGaxTqZ2dZ4LjXD_W74\" -o home_today.png)",
+      "Bash(curl -sL \"https://lh3.googleusercontent.com/aida/AP1WRLsKWzuWVuCyiPtSJU-5BpkP0sfaNcqGAE6mopN4FCrypyll-7_G9NliIGX5Sh_mj4HpjAg6160W1ieHpNkBckh4fYGIjlB2J8EWTPivbt5M1EaVWQI-8_YxYEDS9tduWjf3sH9j89QajQYStO3DNxdBw-v0iy_55qd4dasx4Pr-R96kck4QHppBT1SB5T7ANYoNpe60-u0Uu5kVzFGEtFQ1IO7_Na_6q0VGU_gR0C5_SK5I2YpP8_-32Pg\" -o home_empty.png)"
     ]
   }
 }

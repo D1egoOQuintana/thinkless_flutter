@@ -26,6 +26,7 @@ part 'features/tasks/widgets/free_time_sheet.dart';
 part 'features/focus/widgets/focus_screen.dart';
 part 'features/tasks/widgets/day_review_screen.dart';
 part 'features/calendar/widgets/calendar_screen.dart';
+part 'features/home/widgets/home_screen.dart';
 
 void main() {
   runApp(const ThinkLessApp());
@@ -85,13 +86,13 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
   late final ThemeData _appTheme = _buildAppTheme();
 
   ThemeData _buildAppTheme() {
-    const cs = ColorScheme.dark(
-      brightness: Brightness.dark,
+    const cs = ColorScheme.light(
+      brightness: Brightness.light,
       primary: AppColors.primary,
       onPrimary: AppColors.onPrimary,
       primaryContainer: AppColors.primaryContainer,
-      onPrimaryContainer: AppColors.violetLight,
-      secondary: AppColors.blue,
+      onPrimaryContainer: AppColors.primary,
+      secondary: AppColors.accent,
       onSecondary: AppColors.onPrimary,
       surface: AppColors.surface,
       onSurface: AppColors.onSurface,
@@ -166,31 +167,31 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       textTheme: tt,
       primaryTextTheme: tt,
       splashFactory: InkSparkle.splashFactory,
-      hoverColor: AppColors.surfaceHigh.withValues(alpha: 0.4),
-      highlightColor: AppColors.primary.withValues(alpha: 0.05),
+      hoverColor: AppColors.surfaceHigh.withValues(alpha: 0.6),
+      highlightColor: AppColors.primary.withValues(alpha: 0.06),
       splashColor: AppColors.primary.withValues(alpha: 0.08),
       dividerTheme: const DividerThemeData(
-        color: AppColors.outlineVariant,
+        color: AppColors.outlineSubtle,
         thickness: 0.5,
         space: 0.5,
       ),
-      cardColor: AppColors.surfaceContainer,
+      cardColor: AppColors.surfaceLowest,
       iconTheme: const IconThemeData(color: AppColors.onSurfaceVariant, size: 20),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: AppColors.surfaceLowest,
+        backgroundColor: AppColors.surfaceWarm,
         surfaceTintColor: Colors.transparent,
-        indicatorColor: AppColors.primary.withValues(alpha: 0.16),
+        indicatorColor: AppColors.primary.withValues(alpha: 0.14),
         indicatorShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return const IconThemeData(color: AppColors.violetLight, size: 22);
+            return const IconThemeData(color: AppColors.primary, size: 22);
           }
           return const IconThemeData(color: AppColors.secondary, size: 22);
         }),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
             return GoogleFonts.inter(
-              fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.violetLight, letterSpacing: 0.1,
+              fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary, letterSpacing: 0.1,
             );
           }
           return GoogleFonts.inter(
@@ -201,7 +202,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
         elevation: 0,
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: AppColors.surfaceContainer,
+        backgroundColor: AppColors.surfaceLowest,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xxl)),
         elevation: 0,
@@ -214,12 +215,12 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         ),
         elevation: 0,
-        dragHandleColor: AppColors.outline,
+        dragHandleColor: AppColors.outlineVariant,
         dragHandleSize: Size(36, 4),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceContainer,
+        fillColor: AppColors.surfaceWarm,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.md),
           borderSide: const BorderSide(color: AppColors.outlineVariant),
@@ -237,7 +238,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return AppColors.mint;
+          if (states.contains(WidgetState.selected)) return AppColors.primary;
           return Colors.transparent;
         }),
         checkColor: WidgetStateProperty.all(Colors.white),
@@ -246,11 +247,11 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: AppColors.surfaceContainer,
-        selectedColor: AppColors.primary.withValues(alpha: 0.18),
+        selectedColor: AppColors.primary.withValues(alpha: 0.14),
         disabledColor: AppColors.surfaceContainer,
         labelStyle: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.onSurface),
-        secondaryLabelStyle: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.violetLight),
-        side: const BorderSide(color: AppColors.outlineVariant),
+        secondaryLabelStyle: GoogleFonts.inter(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.primary),
+        side: const BorderSide(color: AppColors.outlineSubtle),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         showCheckmark: false,
@@ -258,11 +259,11 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return Colors.white;
-          return AppColors.onSurfaceVariant;
+          return AppColors.outline;
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return AppColors.primary;
-          return AppColors.surfaceHighest;
+          return AppColors.surfaceHigh;
         }),
         trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
       ),
@@ -279,7 +280,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.onSurface,
-          side: const BorderSide(color: AppColors.outline),
+          side: const BorderSide(color: AppColors.outlineVariant),
           textStyle: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600, fontSize: 14),
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
@@ -287,7 +288,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.violetLight,
+          foregroundColor: AppColors.primary,
           textStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13.5),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
@@ -296,8 +297,8 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       segmentedButtonTheme: SegmentedButtonThemeData(
         style: SegmentedButton.styleFrom(
           backgroundColor: AppColors.surfaceContainer,
-          selectedBackgroundColor: AppColors.primary.withValues(alpha: 0.20),
-          selectedForegroundColor: AppColors.violetLight,
+          selectedBackgroundColor: AppColors.primary.withValues(alpha: 0.14),
+          selectedForegroundColor: AppColors.primary,
           foregroundColor: AppColors.onSurfaceVariant,
           side: const BorderSide(color: AppColors.outlineVariant),
           textStyle: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13),
@@ -305,8 +306,8 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
         ),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.surfaceHigh,
-        contentTextStyle: GoogleFonts.inter(color: AppColors.onSurface, fontWeight: FontWeight.w500),
+        backgroundColor: AppColors.onSurface,
+        contentTextStyle: GoogleFonts.inter(color: AppColors.surfaceLowest, fontWeight: FontWeight.w500),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         elevation: 0,
@@ -318,11 +319,10 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
-          color: AppColors.surfaceHighest,
+          color: AppColors.onSurface,
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          border: Border.all(color: AppColors.outlineVariant),
         ),
-        textStyle: GoogleFonts.inter(color: AppColors.onSurface, fontSize: 12),
+        textStyle: GoogleFonts.inter(color: AppColors.surfaceLowest, fontSize: 12),
       ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -511,7 +511,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      barrierColor: Colors.black.withValues(alpha: 0.55),
+      barrierColor: Colors.black.withValues(alpha: 0.32),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -591,7 +591,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
       context: ctx,
       barrierDismissible: false,
       barrierLabel: 'Horario de enfoque',
-      barrierColor: Colors.black.withValues(alpha: 0.72),
+      barrierColor: Colors.black.withValues(alpha: 0.45),
       transitionDuration: const Duration(milliseconds: 280),
       transitionBuilder: (context, anim, _, child) {
         final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
@@ -609,14 +609,14 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
           canPop: false,
           child: Dialog(
             insetPadding: const EdgeInsets.all(AppSpacing.xxl),
-            backgroundColor: AppColors.surfaceContainer,
+            backgroundColor: AppColors.surfaceLowest,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xxl)),
             elevation: 0,
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(AppRadius.xxl),
-                border: Border.all(color: AppColors.outlineVariant, width: 0.6),
-                boxShadow: AppShadow.lg,
+                border: Border.all(color: AppColors.outlineSubtle, width: 1),
+                boxShadow: AppShadow.md,
               ),
               padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
@@ -632,7 +632,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
                     width: 0.6,
                   ),
                 ),
-                child: const Icon(Icons.school_rounded, color: AppColors.violetLight, size: 30),
+                child: const Icon(Icons.school_rounded, color: AppColors.primary, size: 30),
               ),
               const SizedBox(height: AppSpacing.lg),
               Text(
@@ -939,12 +939,8 @@ class OnboardingScreen extends StatelessWidget {
                           height: 168,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [AppColors.primary, AppColors.indigo, AppColors.blue],
-                            ),
-                            boxShadow: AppShadow.brand(opacity: 0.45),
+                            color: AppColors.primary,
+                            boxShadow: AppShadow.brand(opacity: 0.28),
                           ),
                           child: const Icon(
                             Icons.psychology_rounded,
@@ -1040,7 +1036,7 @@ class ShellScreen extends StatelessWidget {
       floatingActionButton: onFab == null ? null : GradientFab(onTap: onFab!),
       bottomNavigationBar: NavigationBar(
         height: 68,
-        backgroundColor: AppColors.surfaceLowest,
+        backgroundColor: AppColors.surfaceWarm,
         selectedIndex: switch (active) {
           AppView.home => 0,
           AppView.calendar => 1,
@@ -1091,282 +1087,6 @@ class ShellScreen extends StatelessWidget {
   }
 }
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({
-    required this.tasks,
-    required this.focusTotal,
-    required this.focusTotalClock,
-    required this.onOpenTask,
-    required this.onToggleTask,
-    required this.onNavigate,
-    required this.onShowFreeTime,
-    required this.onActivateFocusTotal,
-    required this.onDeactivateFocusTotal,
-    super.key,
-  });
-
-  final List<TaskItem> tasks;
-  final FocusTotalConfig focusTotal;
-  final ValueNotifier<DateTime> focusTotalClock;
-  final ValueChanged<TaskItem> onOpenTask;
-  final ValueChanged<String> onToggleTask;
-  final ValueChanged<AppView> onNavigate;
-  final VoidCallback onShowFreeTime;
-  final VoidCallback onActivateFocusTotal;
-  final VoidCallback onDeactivateFocusTotal;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppScaffold(
-      title: 'ThinkLess',
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(AppSpacing.xl, AppSpacing.lg, AppSpacing.xl, 110),
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.25),
-                    width: 0.6,
-                  ),
-                ),
-                child: const Icon(Icons.waving_hand_rounded, size: 16, color: AppColors.violetLight),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Bienvenido',
-                      style: GoogleFonts.inter(
-                        fontSize: 11.5,
-                        color: AppColors.secondary,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.4,
-                      ),
-                    ),
-                    Text(
-                      'Tu día, organizado',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          FocusTotalCard(
-            config: focusTotal,
-            clock: focusTotalClock,
-            onActivate: onActivateFocusTotal,
-            onDeactivate: onDeactivateFocusTotal,
-          ),
-          const SizedBox(height: AppSpacing.xxl),
-          _HomeSectionLabel(label: 'Tus tareas', count: tasks.isEmpty ? null : tasks.length),
-          const SizedBox(height: AppSpacing.md),
-          if (tasks.isEmpty)
-            EmptyStateCard(
-              icon: Icons.add_task,
-              title: 'No hay tareas todavía',
-              body:
-                  'Usa el botón + para agregar una tarea con voz o escanear tus apuntes.',
-              actions: [
-                EmptyAction(
-                  label: 'Voz IA',
-                  icon: Icons.mic,
-                  onTap: () => onNavigate(AppView.voice),
-                ),
-                EmptyAction(
-                  label: 'Escanear',
-                  icon: Icons.document_scanner,
-                  onTap: () => onNavigate(AppView.scanner),
-                ),
-              ],
-            )
-          else
-            ...tasks.map(
-              (task) => TaskCard(
-                task: task,
-                onTap: () => onOpenTask(task),
-                onToggle: () => onToggleTask(task.id),
-              ),
-            ),
-          const SizedBox(height: AppSpacing.xxl),
-          _HomeSectionLabel(label: 'Para comenzar'),
-          const SizedBox(height: AppSpacing.md),
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _StarterItem(
-                  'Registra tu primera tarea con voz',
-                  () => onNavigate(AppView.voice),
-                ),
-                const SizedBox(height: 4),
-                _StarterItem(
-                  'Activa los recordatorios inteligentes',
-                  () => onNavigate(AppView.alerts),
-                ),
-                const SizedBox(height: 4),
-                _StarterItem(
-                  'Organiza con listas',
-                  () => onNavigate(AppView.matrix),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xxl),
-          _HomeSectionLabel(label: 'Funciones clave'),
-          const SizedBox(height: AppSpacing.md),
-          AppCard(
-            child: Column(
-              children: [
-                GridView.count(
-                  crossAxisCount: MediaQuery.sizeOf(context).width > 520
-                      ? 3
-                      : 2,
-                  childAspectRatio: 1,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  children: [
-                    FeatureTile(
-                      icon: Icons.calendar_month_rounded,
-                      label: 'Calendario',
-                      accent: AppColors.blue,
-                      onTap: () => onNavigate(AppView.calendar),
-                    ),
-                    FeatureTile(
-                      icon: Icons.grid_view_rounded,
-                      label: 'Matriz Eisenhower',
-                      accent: AppColors.violetLight,
-                      onTap: () => onNavigate(AppView.matrix),
-                    ),
-                    FeatureTile(
-                      icon: Icons.flag_rounded,
-                      label: 'Priorizar',
-                      accent: AppColors.pink,
-                      onTap: () => onNavigate(AppView.priorities),
-                    ),
-                    FeatureTile(
-                      icon: Icons.hourglass_top_rounded,
-                      label: 'Tiempo libre',
-                      accent: AppColors.mint,
-                      onTap: onShowFreeTime,
-                    ),
-                    FeatureTile(
-                      icon: Icons.nightlight_round,
-                      label: 'Revisión del día',
-                      accent: AppColors.indigo,
-                      onTap: () => onNavigate(AppView.review),
-                    ),
-                    FeatureTile(
-                      icon: Icons.timer_rounded,
-                      label: 'Pomodoro',
-                      accent: AppColors.error,
-                      onTap: () => onNavigate(AppView.focus),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xxl),
-          _HomeSectionLabel(label: 'Explorar más'),
-          const SizedBox(height: AppSpacing.md),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => _showPremiumModal(context),
-              borderRadius: BorderRadius.circular(AppRadius.lg),
-              child: Container(
-                padding: const EdgeInsets.all(AppSpacing.xl),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFF231B4D),
-                      Color(0xFF2C2058),
-                      Color(0xFF1B1E2B),
-                    ],
-                  ),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.35),
-                    width: 0.8,
-                  ),
-                  boxShadow: AppShadow.brand(opacity: 0.22),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(7),
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(alpha: 0.20),
-                                  borderRadius: BorderRadius.circular(AppRadius.sm),
-                                ),
-                                child: const Icon(Icons.diamond_rounded, color: AppColors.violetLight, size: 16),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Premium',
-                                style: GoogleFonts.plusJakartaSans(
-                                  color: AppColors.onSurface,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.3,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: AppSpacing.sm + 2),
-                          Text(
-                            'Desbloquea todo el potencial de ThinkLess.',
-                            style: GoogleFonts.inter(
-                              color: AppColors.onSurfaceVariant,
-                              fontSize: 13,
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 64, height: 64,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppColors.primary, AppColors.indigo],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadius.lg),
-                        boxShadow: AppShadow.brand(opacity: 0.35),
-                      ),
-                      child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 28),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class VoiceScreen extends StatefulWidget {
   const VoiceScreen({
@@ -3288,9 +3008,9 @@ class AppCard extends StatelessWidget {
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: elevated ? AppColors.surfaceVariant : AppColors.surfaceContainer,
+        color: AppColors.surfaceLowest,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+        border: Border.all(color: AppColors.outlineSubtle, width: 1),
         boxShadow: elevated ? AppShadow.sm : null,
       ),
       child: stripe != null
@@ -3368,12 +3088,13 @@ class _TaskCardState extends State<TaskCard> {
             curve: AppMotion.standard,
             child: Container(
               decoration: BoxDecoration(
-                color: AppColors.surfaceContainer,
+                color: AppColors.surfaceLowest,
                 borderRadius: BorderRadius.circular(AppRadius.lg),
                 border: Border.all(
-                  color: _pressed ? AppColors.outline : AppColors.outlineVariant,
-                  width: 0.6,
+                  color: _pressed ? AppColors.outlineVariant : AppColors.outlineSubtle,
+                  width: 1,
                 ),
+                boxShadow: _pressed ? null : AppShadow.sm,
               ),
               child: IntrinsicHeight(
                 child: Row(
@@ -3408,14 +3129,14 @@ class _TaskCardState extends State<TaskCard> {
                                 width: 22, height: 22,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: done ? AppColors.mint : Colors.transparent,
+                                  color: done ? AppColors.primary : Colors.transparent,
                                   border: Border.all(
-                                    color: done ? AppColors.mint : AppColors.outline,
+                                    color: done ? AppColors.primary : AppColors.outlineVariant,
                                     width: 1.5,
                                   ),
                                   boxShadow: done
                                       ? [BoxShadow(
-                                          color: AppColors.mint.withValues(alpha: 0.4),
+                                          color: AppColors.primary.withValues(alpha: 0.25),
                                           blurRadius: 8, spreadRadius: 0)]
                                       : null,
                                 ),
@@ -3550,26 +3271,20 @@ class EmptyStateCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        color: AppColors.surfaceContainer,
+        color: AppColors.surfaceLowest,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.6),
-          width: 0.5,
-        ),
+        border: Border.all(color: AppColors.outlineSubtle, width: 1),
+        boxShadow: AppShadow.sm,
       ),
       child: Column(
         children: [
           Container(
             width: 64, height: 64,
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: AppColors.primary.withValues(alpha: 0.2),
-                width: 0.5,
-              ),
+              color: AppColors.primaryContainer,
+              borderRadius: BorderRadius.circular(AppRadius.xl),
             ),
-            child: Icon(icon, color: AppColors.violetLight, size: 30),
+            child: Icon(icon, color: AppColors.primary, size: 30),
           ),
           const SizedBox(height: 16),
           Text(
@@ -3604,17 +3319,14 @@ class EmptyStateCard extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
                         decoration: BoxDecoration(
-                          color: AppColors.surfaceHigh,
+                          color: AppColors.surfaceContainer,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: AppColors.outlineVariant.withValues(alpha: 0.7),
-                            width: 0.5,
-                          ),
+                          border: Border.all(color: AppColors.outlineSubtle, width: 1),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(action.icon, size: 15, color: AppColors.violetLight),
+                            Icon(action.icon, size: 15, color: AppColors.primary),
                             const SizedBox(width: 6),
                             Text(
                               action.label,
@@ -3734,14 +3446,9 @@ class _GradientFabState extends State<GradientFab> {
         child: Container(
           width: 56, height: 56,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [AppColors.primary, AppColors.indigo],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+            color: AppColors.primary,
             borderRadius: BorderRadius.circular(AppRadius.xl),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.10), width: 0.8),
-            boxShadow: AppShadow.brand(opacity: 0.40),
+            boxShadow: AppShadow.brand(opacity: 0.30),
           ),
           child: const Icon(Icons.add_rounded, color: Colors.white, size: 26),
         ),
@@ -3780,9 +3487,10 @@ class FeatureTile extends StatelessWidget {
         highlightColor: iconColor.withValues(alpha: 0.05),
         child: Container(
           decoration: BoxDecoration(
-            color: AppColors.surfaceContainer,
+            color: AppColors.surfaceLowest,
             borderRadius: BorderRadius.circular(AppRadius.lg),
-            border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+            border: Border.all(color: AppColors.outlineSubtle, width: 1),
+            boxShadow: AppShadow.sm,
           ),
           padding: const EdgeInsets.all(AppSpacing.md + 2),
           child: Column(
@@ -3794,7 +3502,6 @@ class FeatureTile extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: bgColor,
                   borderRadius: BorderRadius.circular(AppRadius.sm),
-                  border: Border.all(color: iconColor.withValues(alpha: 0.18), width: 0.6),
                 ),
                 child: Icon(icon, color: iconColor, size: 20),
               ),
@@ -4133,97 +3840,7 @@ class _StatusCard extends StatelessWidget {
   }
 }
 
-class _StarterItem extends StatelessWidget {
-  const _StarterItem(this.label, this.onTap);
-  final String label;
-  final VoidCallback onTap;
 
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            children: [
-              Container(
-                width: 22, height: 22,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.primary.withValues(alpha: 0.10),
-                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.4), width: 1.2),
-                ),
-                child: const Center(
-                  child: Icon(Icons.arrow_forward_rounded, size: 12, color: AppColors.violetLight),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Text(
-                  label,
-                  style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w500,
-                    fontSize: 13.5,
-                    color: AppColors.onSurface,
-                  ),
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.secondary),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HomeSectionLabel extends StatelessWidget {
-  const _HomeSectionLabel({required this.label, this.count});
-  final String label;
-  final int? count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: AppColors.onSurfaceVariant,
-              letterSpacing: 0.3,
-            ),
-          ),
-          if (count != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceHigh,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(color: AppColors.outlineVariant, width: 0.6),
-              ),
-              child: Text(
-                '$count',
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.secondary,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
 class DayPill extends StatelessWidget {
   const DayPill(this.day, this.number, {this.active = false, super.key});
@@ -4841,10 +4458,10 @@ class _Dot extends StatelessWidget {
 Color priorityColor(String priority) {
   return switch (priority) {
     'urgente' => AppColors.error,
-    'alta' => AppColors.pink,
-    'media' => AppColors.yellow,
-    'baja' => AppColors.mint,
-    _ => AppColors.primary,
+    'alta'    => AppColors.accent,
+    'media'   => AppColors.primary,
+    'baja'    => AppColors.mint,
+    _         => AppColors.primary,
   };
 }
 
