@@ -862,13 +862,13 @@ class _DarkIconButton extends StatelessWidget {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.06),
+            color: AppColors.surfaceContainer,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.08),
+              color: AppColors.outlineVariant.withValues(alpha: 0.6),
             ),
           ),
-          child: Icon(icon, color: Colors.white, size: 20),
+          child: Icon(icon, color: AppColors.onSurfaceVariant, size: 20),
         ),
       ),
     );
@@ -885,9 +885,9 @@ class _ActiveTaskChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: AppColors.surfaceContainer,
         borderRadius: BorderRadius.circular(100),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(color: AppColors.outlineVariant.withValues(alpha: 0.6)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -907,7 +907,7 @@ class _ActiveTaskChip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: Colors.white,
+                color: AppColors.onSurface,
                 fontWeight: FontWeight.w700,
                 fontSize: 13,
               ),
@@ -968,11 +968,11 @@ class _TimerRing extends StatelessWidget {
                   duration: const Duration(milliseconds: 950),
                   builder: (context, value, _) => CircularProgressIndicator(
                     value: value,
-                    strokeWidth: 4,
+                    strokeWidth: 6,
                     strokeCap: StrokeCap.round,
-                    backgroundColor: Colors.white.withValues(alpha: 0.06),
+                    backgroundColor: AppColors.surfaceHigh,
                     valueColor: const AlwaysStoppedAnimation(
-                      AppColors.indigo,
+                      AppColors.primary,
                     ),
                   ),
                 ),
@@ -983,10 +983,10 @@ class _TimerRing extends StatelessWidget {
                   Text(
                     '$m:$s',
                     style: const TextStyle(
-                      fontSize: 64,
-                      fontWeight: FontWeight.w200,
-                      color: Colors.white,
-                      letterSpacing: -1,
+                      fontSize: 66,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.onSurface,
+                      letterSpacing: -1.5,
                       fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
@@ -994,8 +994,8 @@ class _TimerRing extends StatelessWidget {
                   Text(
                     '${(progress * 100).round()}%',
                     style: const TextStyle(
-                      color: AppColors.secondary,
-                      fontWeight: FontWeight.w700,
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w800,
                       fontSize: 13,
                       letterSpacing: 0.6,
                     ),
@@ -1028,10 +1028,10 @@ class _PlannedDots extends StatelessWidget {
             height: 8,
             decoration: BoxDecoration(
               color: i < done
-                  ? AppColors.indigo
+                  ? AppColors.primary
                   : i == done
-                        ? Colors.white.withValues(alpha: 0.9)
-                        : Colors.white.withValues(alpha: 0.15),
+                        ? AppColors.primary.withValues(alpha: 0.55)
+                        : AppColors.outlineVariant.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(100),
             ),
           ),

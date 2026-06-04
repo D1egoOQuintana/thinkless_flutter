@@ -1,18 +1,26 @@
 part of '../../../main.dart';
 
-enum CalendarMode { month, week, day }
+enum _SemanaMode { week, day }
 
-/// Calendario premium con tres modos (Mes / Semana / Día).
+/// Experiencia "Semana" — planificador semanal (no un calendario genérico).
 ///
-/// Rango horario: 06:00 — 24:00 (18 bloques por día).
-/// Performance: indexa todas las tareas en mapas (día → tareas, día×hora →
-/// tareas) UNA sola vez por build, eliminando los O(n) por celda anteriores.
+/// Source of truth: frames Stitch MCP "Semana (Carga Baja/Alta)",
+/// "Detalle del Día (Vacío/Con Tareas)" y "Selector de Mes (Modal)".
+///
+/// - Week planner con resumen inteligente que se adapta a la carga.
+/// - Detalle de día seleccionado (urgentes / bloques agendados / sin hora).
+/// - Estado vacío del día.
+/// - Selector de mes como bottom sheet modal.
+///
+/// Los datos de fecha/hora de las tareas siguen alimentando toda la UI vía los
+/// helpers globales (`_taskDate`, `_taskMinutes`, `priorityColor`).
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({
     required this.tasks,
     required this.onOpenTask,
     required this.onToggleTask,
     required this.noMolestar,
+    this.onAddTask,
     super.key,
   });
 
@@ -21,19 +29,17 @@ class CalendarScreen extends StatefulWidget {
   final ValueChanged<String> onToggleTask;
   final NoMolestarConfig noMolestar;
 
+  /// Reutiliza el flujo de alta de tareas existente (Shell `_showAddSheet`).
+  final VoidCallback? onAddTask;
+
   @override
   State<CalendarScreen> createState() => _CalendarScreenState();
 }
 
 class _CalendarScreenState extends State<CalendarScreen> {
-  static const int firstHour = 6;
-  static const int lastHour = 24; // 12am
-  static const int hourCount = lastHour - firstHour; // 18
-
-  CalendarMode _mode = CalendarMode.month;
+  _SemanaMode _mode = _SemanaMode.week;
   DateTime _focusedDay = DateTime.now();
-
-  // ─── Índices precomputados ──────────────────────────────────────────
+  DateTime _selectedDay = DateTime.now();
 
   int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
 
@@ -49,34 +55,35 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return map;
   }
 
-  Map<int, List<TaskItem>> _hourBuckets(List<TaskItem> dayTasks) {
-    final map = <int, List<TaskItem>>{};
-    for (final t in dayTasks) {
-      if (t.hora == 'Sin hora') continue;
-      final h = _taskHour(t).clamp(firstHour, lastHour - 1);
-      (map[h] ??= <TaskItem>[]).add(t);
-    }
-    return map;
-  }
-
   // ─── Navegación ─────────────────────────────────────────────────────
 
-  void _setMode(CalendarMode m) => setState(() => _mode = m);
+  void _shiftWeek(int amount) =>
+      setState(() => _focusedDay = _focusedDay.add(Duration(days: 7 * amount)));
 
-  void _goToToday() => setState(() => _focusedDay = DateTime.now());
+  void _openDay(DateTime day) => setState(() {
+    _selectedDay = day;
+    _mode = _SemanaMode.day;
+  });
 
-  void _shiftBy(int amount) {
-    setState(() {
-      _focusedDay = switch (_mode) {
-        CalendarMode.month => DateTime(
-          _focusedDay.year,
-          _focusedDay.month + amount,
-          1,
-        ),
-        CalendarMode.week => _focusedDay.add(Duration(days: 7 * amount)),
-        CalendarMode.day => _focusedDay.add(Duration(days: amount)),
-      };
-    });
+  void _backToWeek() => setState(() => _mode = _SemanaMode.week);
+
+  Future<void> _openMonthPicker(Map<int, List<TaskItem>> byDay) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _MonthPickerSheet(
+        initialMonth: _focusedDay,
+        byDay: byDay,
+        onPick: (d) {
+          Navigator.of(context).pop();
+          setState(() {
+            _focusedDay = d;
+            _mode = _SemanaMode.week;
+          });
+        },
+      ),
+    );
   }
 
   // ─── Build ──────────────────────────────────────────────────────────
@@ -85,67 +92,887 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     final byDay = _indexByDay(widget.tasks);
     final silent = isNoMolestarActivo(widget.noMolestar);
-    final todayCount = byDay[_dayKey(DateTime.now())]?.length ?? 0;
-    final selectedCount = byDay[_dayKey(_focusedDay)]?.length ?? 0;
 
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Column(
+        bottom: false,
+        child: AnimatedSwitcher(
+          duration: AppMotion.base,
+          switchInCurve: AppMotion.emphasized,
+          switchOutCurve: Curves.easeIn,
+          child: KeyedSubtree(
+            key: ValueKey(_mode == _SemanaMode.day ? _dayKey(_selectedDay) : -1),
+            child: _mode == _SemanaMode.week
+                ? _WeekPlanner(
+                    focusedDay: _focusedDay,
+                    byDay: byDay,
+                    silent: silent,
+                    onPrevWeek: () => _shiftWeek(-1),
+                    onNextWeek: () => _shiftWeek(1),
+                    onOpenMonth: () => _openMonthPicker(byDay),
+                    onDayTap: _openDay,
+                    onTaskTap: widget.onOpenTask,
+                  )
+                : _DayDetail(
+                    day: _selectedDay,
+                    tasks: byDay[_dayKey(_selectedDay)] ?? const [],
+                    onBack: _backToWeek,
+                    onTaskTap: widget.onOpenTask,
+                    onToggleTask: widget.onToggleTask,
+                    onAddTask: widget.onAddTask,
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Métricas de la semana
+// ─────────────────────────────────────────────────────────────────────────
+
+class _WeekStats {
+  const _WeekStats({
+    required this.total,
+    required this.urgent,
+    required this.freeDays,
+    required this.estimatedMin,
+  });
+
+  final int total;
+  final int urgent;
+  final int freeDays;
+  final int estimatedMin;
+
+  bool get highLoad => total >= 6 || urgent >= 3;
+}
+
+_WeekStats _computeWeekStats(List<DateTime> days, Map<int, List<TaskItem>> byDay) {
+  int total = 0, urgent = 0, free = 0, minutes = 0;
+  for (final d in days) {
+    final tasks = byDay[d.year * 10000 + d.month * 100 + d.day] ?? const [];
+    if (tasks.isEmpty) {
+      free++;
+      continue;
+    }
+    total += tasks.length;
+    for (final t in tasks) {
+      if (t.prioridad == 'urgente' || t.prioridad == 'alta') urgent++;
+      minutes += t.duracionMin ?? 30;
+    }
+  }
+  return _WeekStats(total: total, urgent: urgent, freeDays: free, estimatedMin: minutes);
+}
+
+String _fmtDuration(int minutes) {
+  if (minutes <= 0) return '0m';
+  final h = minutes ~/ 60;
+  final m = minutes % 60;
+  if (h == 0) return '${m}m';
+  if (m == 0) return '${h}h';
+  return '${h}h ${m}m';
+}
+
+bool _isUrgent(TaskItem t) => t.prioridad == 'urgente' || t.prioridad == 'alta';
+
+IconData _semanaTipoIcon(String t) => switch (t) {
+  'examen' => Icons.fact_check_rounded,
+  'tarea' => Icons.assignment_rounded,
+  'laboratorio' => Icons.science_rounded,
+  'proyecto' => Icons.workspaces_rounded,
+  'lectura' => Icons.menu_book_rounded,
+  _ => Icons.label_rounded,
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// Week planner
+// ─────────────────────────────────────────────────────────────────────────
+
+class _WeekPlanner extends StatelessWidget {
+  const _WeekPlanner({
+    required this.focusedDay,
+    required this.byDay,
+    required this.silent,
+    required this.onPrevWeek,
+    required this.onNextWeek,
+    required this.onOpenMonth,
+    required this.onDayTap,
+    required this.onTaskTap,
+  });
+
+  final DateTime focusedDay;
+  final Map<int, List<TaskItem>> byDay;
+  final bool silent;
+  final VoidCallback onPrevWeek;
+  final VoidCallback onNextWeek;
+  final VoidCallback onOpenMonth;
+  final ValueChanged<DateTime> onDayTap;
+  final ValueChanged<TaskItem> onTaskTap;
+
+  int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
+
+  String _rangeLabel(DateTime monday, DateTime sunday) {
+    if (monday.month == sunday.month) {
+      return '${monday.day} – ${sunday.day} ${_monthName(monday.month)}';
+    }
+    return '${monday.day} ${_monthName(monday.month)} – ${sunday.day} ${_monthName(sunday.month)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final monday = focusedDay.subtract(Duration(days: focusedDay.weekday - 1));
+    final days = List.generate(7, (i) => monday.add(Duration(days: i)));
+    final sunday = days.last;
+    final today = DateTime.now();
+    final stats = _computeWeekStats(days, byDay);
+
+    return ListView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
+      children: [
+        // ── Header de contexto ──
+        Row(
           children: [
-            _CalendarTopBar(
-              mode: _mode,
-              focusedDay: _focusedDay,
-              todayCount: todayCount,
-              selectedCount: selectedCount,
-              silent: silent,
-              onModeChanged: _setMode,
-              onPrev: () => _shiftBy(-1),
-              onNext: () => _shiftBy(1),
-              onToday: _goToToday,
-            ),
             Expanded(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 260),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeIn,
-                child: KeyedSubtree(
-                  key: ValueKey(_mode),
-                  child: switch (_mode) {
-                    CalendarMode.month => _MonthGrid(
-                      focusedDay: _focusedDay,
-                      byDay: byDay,
-                      onDaySelected: (d) => setState(() {
-                        _focusedDay = d;
-                        _mode = CalendarMode.day;
-                      }),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _rangeLabel(monday, sunday).toUpperCase(),
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.4,
+                      color: AppColors.secondary,
                     ),
-                    CalendarMode.week => _WeekTimeline(
-                      focusedDay: _focusedDay,
-                      byDay: byDay,
-                      firstHour: firstHour,
-                      hourCount: hourCount,
-                      onTaskTap: widget.onOpenTask,
-                      onDayTap: (d) => setState(() {
-                        _focusedDay = d;
-                        _mode = CalendarMode.day;
-                      }),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Esta semana',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.8,
+                      color: AppColors.primary,
                     ),
-                    CalendarMode.day => _DayTimeline(
-                      day: _focusedDay,
-                      dayTasks: byDay[_dayKey(_focusedDay)] ?? const [],
-                      hourBuckets: _hourBuckets(
-                        byDay[_dayKey(_focusedDay)] ?? const [],
-                      ),
-                      firstHour: firstHour,
-                      hourCount: hourCount,
-                      onTaskTap: widget.onOpenTask,
-                      onToggleTask: widget.onToggleTask,
-                    ),
-                  },
-                ),
+                  ),
+                ],
               ),
             ),
+            _RoundIcon(icon: Icons.chevron_left_rounded, onTap: onPrevWeek),
+            const SizedBox(width: 8),
+            _RoundIcon(icon: Icons.chevron_right_rounded, onTap: onNextWeek),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // ── Acción mes + silencio ──
+        Row(
+          children: [
+            _PillButton(
+              icon: Icons.calendar_month_rounded,
+              label: 'Mes',
+              onTap: onOpenMonth,
+            ),
+            const Spacer(),
+            if (silent)
+              _MiniBadge(
+                icon: Icons.notifications_off_rounded,
+                label: 'Silencio',
+                color: AppColors.secondary,
+              ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        // ── Resumen inteligente (carga baja vs alta) ──
+        if (stats.highLoad)
+          _SummaryHighLoad(stats: stats)
+        else
+          _SummaryLowLoad(stats: stats),
+        const SizedBox(height: 24),
+        // ── Panorama semanal ──
+        Text(
+          'PANORAMA SEMANAL',
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.4,
+            color: AppColors.secondary,
+          ),
+        ),
+        const SizedBox(height: 14),
+        for (final d in days)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: stats.highLoad
+                ? _DayRowHigh(
+                    day: d,
+                    tasks: byDay[_dayKey(d)] ?? const [],
+                    isToday: _sameDay(d, today),
+                    onTap: () => onDayTap(d),
+                  )
+                : _DayRowLow(
+                    day: d,
+                    tasks: byDay[_dayKey(d)] ?? const [],
+                    isToday: _sameDay(d, today),
+                    onTap: () => onDayTap(d),
+                    onTaskTap: onTaskTap,
+                  ),
+          ),
+      ],
+    );
+  }
+}
+
+// ─── Resumen: carga baja ────────────────────────────────────────────────
+
+class _SummaryLowLoad extends StatelessWidget {
+  const _SummaryLowLoad({required this.stats});
+  final _WeekStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Hero: días libres detectados
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceContainer,
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: AppColors.outlineSubtle),
+            boxShadow: AppShadow.sm,
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      stats.freeDays > 0
+                          ? '${stats.freeDays} día${stats.freeDays == 1 ? '' : 's'} libre${stats.freeDays == 1 ? '' : 's'}'
+                          : 'Semana ligera',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tiempo para descansar y recargar energía.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: AppColors.secondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 14),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: const BoxDecoration(
+                  color: AppColors.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.spa_rounded,
+                    color: AppColors.primary, size: 24),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _MiniStatCard(
+                value: '${stats.total}',
+                label: 'tareas esta semana',
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _MiniStatCard(
+                value: _fmtDuration(stats.estimatedMin),
+                label: 'estimados',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Resumen: carga alta ────────────────────────────────────────────────
+
+class _SummaryHighLoad extends StatelessWidget {
+  const _SummaryHighLoad({required this.stats});
+  final _WeekStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.errorContainer,
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: AppColors.accent.withValues(alpha: 0.18)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.warning_amber_rounded,
+                    color: AppColors.accent, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Semana de alta carga',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Prepárate para un volumen intenso. Prioriza el descanso entre sesiones.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: AppColors.onErrorContainer.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _MiniStatCard(
+                icon: Icons.assignment_outlined,
+                iconColor: AppColors.primary,
+                value: '${stats.total}',
+                label: 'tareas esta semana',
+                alignStart: true,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _MiniStatCard(
+                icon: Icons.priority_high_rounded,
+                iconColor: AppColors.accent,
+                value: '${stats.urgent}',
+                label: 'urgentes',
+                alignStart: true,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceContainer,
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: AppColors.outlineSubtle),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.schedule_rounded,
+                  size: 18, color: AppColors.secondary),
+              const SizedBox(width: 10),
+              Text(
+                'Carga estimada',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.onSurface,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                _fmtDuration(stats.estimatedMin),
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MiniStatCard extends StatelessWidget {
+  const _MiniStatCard({
+    required this.value,
+    required this.label,
+    this.icon,
+    this.iconColor,
+    this.alignStart = false,
+  });
+
+  final String value;
+  final String label;
+  final IconData? icon;
+  final Color? iconColor;
+  final bool alignStart;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      constraints: const BoxConstraints(minHeight: 100),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLowest,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: AppColors.outlineSubtle),
+        boxShadow: AppShadow.sm,
+      ),
+      child: Column(
+        crossAxisAlignment:
+            alignStart ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 22, color: iconColor ?? AppColors.primary),
+            const Spacer(),
+          ],
+          Text(
+            value,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: icon != null ? 22 : 30,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+              color: AppColors.onSurface,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            textAlign: alignStart ? TextAlign.start : TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.secondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Fila de día: carga baja (timeline) ─────────────────────────────────
+
+class _DayRowLow extends StatelessWidget {
+  const _DayRowLow({
+    required this.day,
+    required this.tasks,
+    required this.isToday,
+    required this.onTap,
+    required this.onTaskTap,
+  });
+
+  final DateTime day;
+  final List<TaskItem> tasks;
+  final bool isToday;
+  final VoidCallback onTap;
+  final ValueChanged<TaskItem> onTaskTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Columna fecha
+        SizedBox(
+          width: 48,
+          child: Column(
+            children: [
+              const SizedBox(height: 6),
+              Text(
+                _shortDay(day.weekday),
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: isToday ? AppColors.primary : AppColors.secondary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${day.day}',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: tasks.isEmpty
+                      ? AppColors.secondary
+                      : AppColors.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        // Tarjeta de día
+        Expanded(
+          child: tasks.isEmpty
+              ? _FreeDayCard(onTap: onTap)
+              : Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(AppRadius.xl),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceLowest,
+                        borderRadius: BorderRadius.circular(AppRadius.xl),
+                        border: Border.all(color: AppColors.outlineSubtle),
+                        boxShadow: AppShadow.sm,
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: [
+                          for (var i = 0; i < tasks.length && i < 3; i++)
+                            _MiniTaskLine(
+                              task: tasks[i],
+                              showDivider: i > 0,
+                              onTap: () => onTaskTap(tasks[i]),
+                            ),
+                          if (tasks.length > 3)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  '+${tasks.length - 3} más',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MiniTaskLine extends StatelessWidget {
+  const _MiniTaskLine({
+    required this.task,
+    required this.showDivider,
+    required this.onTap,
+  });
+
+  final TaskItem task;
+  final bool showDivider;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = priorityColor(task.prioridad);
+    return Container(
+      decoration: BoxDecoration(
+        border: showDivider
+            ? Border(top: BorderSide(color: AppColors.outlineSubtle))
+            : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(width: 4, color: accent),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          task.titulo,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.onSurface,
+                            decoration: task.completada
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            if (task.hora != 'Sin hora')
+                              _TaskChip(label: task.hora),
+                            if (task.hora != 'Sin hora')
+                              const SizedBox(width: 6),
+                            _TaskChip(
+                              icon: _semanaTipoIcon(task.tipo),
+                              label: task.materia,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskChip extends StatelessWidget {
+  const _TaskChip({required this.label, this.icon});
+  final String label;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: AppColors.secondary),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppColors.secondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FreeDayCard extends StatelessWidget {
+  const _FreeDayCard({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        child: Container(
+          height: 72,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceWarm.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(
+              color: AppColors.outlineVariant.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.self_improvement_rounded,
+                    size: 20, color: AppColors.secondary.withValues(alpha: 0.8)),
+                const SizedBox(width: 8),
+                Text(
+                  'Libre',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.secondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Fila de día: carga alta (barra de densidad) ────────────────────────
+
+class _DayRowHigh extends StatelessWidget {
+  const _DayRowHigh({
+    required this.day,
+    required this.tasks,
+    required this.isToday,
+    required this.onTap,
+  });
+
+  final DateTime day;
+  final List<TaskItem> tasks;
+  final bool isToday;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasUrgent = tasks.any(_isUrgent);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceLowest,
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(
+              color: isToday
+                  ? AppColors.primary.withValues(alpha: 0.4)
+                  : AppColors.outlineSubtle,
+              width: isToday ? 1.4 : 1,
+            ),
+            boxShadow: AppShadow.sm,
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 44,
+                child: Column(
+                  children: [
+                    Text(
+                      _shortDay(day.weekday),
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: isToday ? AppColors.primary : AppColors.secondary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${day.day}',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          tasks.isEmpty
+                              ? 'Libre'
+                              : '${tasks.length} tarea${tasks.length == 1 ? '' : 's'}',
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: tasks.isEmpty
+                                ? AppColors.secondary
+                                : AppColors.onSurface,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (hasUrgent)
+                          const Icon(Icons.error_rounded,
+                              size: 16, color: AppColors.accent),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    _LoadBar(tasks: tasks),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LoadBar extends StatelessWidget {
+  const _LoadBar({required this.tasks});
+  final List<TaskItem> tasks;
+
+  @override
+  Widget build(BuildContext context) {
+    if (tasks.isEmpty) {
+      return Container(
+        height: 8,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceHigh,
+          borderRadius: BorderRadius.circular(100),
+        ),
+      );
+    }
+    final segments = tasks.take(6).toList();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(100),
+      child: SizedBox(
+        height: 8,
+        child: Row(
+          children: [
+            for (var i = 0; i < segments.length; i++) ...[
+              if (i > 0) const SizedBox(width: 2),
+              Expanded(
+                child: ColoredBox(color: priorityColor(segments[i].prioridad)),
+              ),
+            ],
           ],
         ),
       ),
@@ -154,133 +981,556 @@ class _CalendarScreenState extends State<CalendarScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Top bar: título, navegación, modo
+// Detalle del día
 // ─────────────────────────────────────────────────────────────────────────
 
-class _CalendarTopBar extends StatelessWidget {
-  const _CalendarTopBar({
-    required this.mode,
-    required this.focusedDay,
-    required this.todayCount,
-    required this.selectedCount,
-    required this.silent,
-    required this.onModeChanged,
-    required this.onPrev,
-    required this.onNext,
-    required this.onToday,
+class _DayDetail extends StatelessWidget {
+  const _DayDetail({
+    required this.day,
+    required this.tasks,
+    required this.onBack,
+    required this.onTaskTap,
+    required this.onToggleTask,
+    required this.onAddTask,
   });
 
-  final CalendarMode mode;
-  final DateTime focusedDay;
-  final int todayCount;
-  final int selectedCount;
-  final bool silent;
-  final ValueChanged<CalendarMode> onModeChanged;
-  final VoidCallback onPrev;
-  final VoidCallback onNext;
-  final VoidCallback onToday;
+  final DateTime day;
+  final List<TaskItem> tasks;
+  final VoidCallback onBack;
+  final ValueChanged<TaskItem> onTaskTap;
+  final ValueChanged<String> onToggleTask;
+  final VoidCallback? onAddTask;
 
   String _title() {
-    return switch (mode) {
-      CalendarMode.month =>
-        '${_monthName(focusedDay.month)} ${focusedDay.year}',
-      CalendarMode.week => _weekLabel(focusedDay),
-      CalendarMode.day =>
-        '${_shortDay(focusedDay.weekday)} ${focusedDay.day} ${_monthName(focusedDay.month).substring(0, 3).toLowerCase()}',
-    };
-  }
-
-  static String _weekLabel(DateTime d) {
-    final monday = d.subtract(Duration(days: d.weekday - 1));
-    final sunday = monday.add(const Duration(days: 6));
-    if (monday.month == sunday.month) {
-      return '${monday.day}–${sunday.day} ${_monthName(monday.month)}';
-    }
-    return '${monday.day} ${_monthName(monday.month).substring(0, 3).toLowerCase()} — ${sunday.day} ${_monthName(sunday.month).substring(0, 3).toLowerCase()}';
+    final today = DateTime.now();
+    final prefix = _sameDay(day, today) ? 'Hoy · ' : '';
+    final weekday = _weekdayLong(day.weekday);
+    final month = _monthName(day.month).substring(0, 3);
+    return '$prefix$weekday ${day.day} $month';
   }
 
   @override
   Widget build(BuildContext context) {
-    final isToday = _sameDay(focusedDay, DateTime.now());
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
+    final urgent = tasks.where(_isUrgent).toList(growable: false);
+    final scheduled = tasks
+        .where((t) => !_isUrgent(t) && t.hora != 'Sin hora')
+        .toList(growable: false);
+    final untimed = tasks
+        .where((t) => !_isUrgent(t) && t.hora == 'Sin hora')
+        .toList(growable: false);
+
+    return Column(
+      children: [
+        // ── Top bar ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 20, 8),
+          child: Row(
             children: [
+              _RoundIcon(icon: Icons.arrow_back_rounded, onTap: onBack),
+              const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Text(
+                  _title(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: tasks.isEmpty
+              ? _DayEmptyState(day: day, onAddTask: onAddTask)
+              : ListView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
                   children: [
-                    const Text(
-                      'CALENDARIO',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1.6,
-                        color: AppColors.onSurfaceVariant,
+                    if (urgent.isNotEmpty) ...[
+                      _DetailSectionHead(
+                        label: 'Prioridad urgente',
+                        icon: Icons.warning_amber_rounded,
+                        color: AppColors.accent,
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _title(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.onSurface,
+                      const SizedBox(height: 12),
+                      for (final t in urgent)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _DayUrgentCard(
+                            task: t,
+                            onTap: () => onTaskTap(t),
+                            onToggle: () => onToggleTask(t.id),
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (scheduled.isNotEmpty) ...[
+                      _DetailSectionHead(
+                        label: 'Bloques agendados',
+                        icon: Icons.schedule_rounded,
+                        color: AppColors.primary,
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      _ScheduledTimeline(
+                        tasks: scheduled,
+                        onTaskTap: onTaskTap,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (untimed.isNotEmpty) ...[
+                      _DetailSectionHead(
+                        label: 'Tareas sin hora',
+                        icon: Icons.label_outline_rounded,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(height: 12),
+                      for (final t in untimed)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _UntimedTaskRow(
+                            task: t,
+                            onTap: () => onTaskTap(t),
+                            onToggle: () => onToggleTask(t.id),
+                          ),
+                        ),
+                    ],
                   ],
                 ),
-              ),
-              _RoundIcon(icon: Icons.chevron_left_rounded, onTap: onPrev),
-              const SizedBox(width: 8),
-              _RoundIcon(icon: Icons.chevron_right_rounded, onTap: onNext),
-            ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DetailSectionHead extends StatelessWidget {
+  const _DetailSectionHead({
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: color,
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _ModeSegment(active: mode, onChanged: onModeChanged),
-              ),
-              const SizedBox(width: 10),
-              _TodayPill(active: isToday, onTap: onToday),
-            ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DayUrgentCard extends StatelessWidget {
+  const _DayUrgentCard({
+    required this.task,
+    required this.onTap,
+    required this.onToggle,
+  });
+
+  final TaskItem task;
+  final VoidCallback onTap;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = priorityColor(task.prioridad);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.surfaceLowest,
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: AppColors.outlineSubtle),
+            boxShadow: AppShadow.sm,
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              _MiniStat(
-                icon: Icons.event_available_rounded,
-                label: isToday
-                    ? '$selectedCount hoy'
-                    : '$selectedCount este día',
-                color: AppColors.primary,
-              ),
-              const SizedBox(width: 8),
-              if (!isToday)
-                _MiniStat(
-                  icon: Icons.today_rounded,
-                  label: '$todayCount hoy',
-                  color: AppColors.mint,
+          clipBehavior: Clip.antiAlias,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(width: 4, color: accent),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _CheckCircle(
+                          done: task.completada,
+                          onTap: onToggle,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                task.titulo,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.onSurface,
+                                  decoration: task.completada
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  if (task.hora != 'Sin hora') ...[
+                                    Icon(Icons.schedule_rounded,
+                                        size: 14, color: AppColors.secondary),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      task.hora,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.secondary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                  ],
+                                  Flexible(
+                                    child: _TaskChip(label: task.materia),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              const Spacer(),
-              if (silent)
-                _MiniStat(
-                  icon: Icons.notifications_off_rounded,
-                  label: 'Silencio',
-                  color: AppColors.onSurfaceVariant,
-                ),
-            ],
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScheduledTimeline extends StatelessWidget {
+  const _ScheduledTimeline({required this.tasks, required this.onTaskTap});
+
+  final List<TaskItem> tasks;
+  final ValueChanged<TaskItem> onTaskTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(left: 4),
+      child: Column(
+        children: [
+          for (var i = 0; i < tasks.length; i++)
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Riel + nodo
+                  SizedBox(
+                    width: 24,
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 4),
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: priorityColor(tasks[i].prioridad),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppColors.background,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            width: 2,
+                            color: i == tasks.length - 1
+                                ? Colors.transparent
+                                : AppColors.surfaceHigh,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => onTaskTap(tasks[i]),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceWarm,
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              border: Border.all(color: AppColors.outlineSubtle),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  tasks[i].hora,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  tasks[i].titulo,
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.onSurface,
+                                    decoration: tasks[i].completada
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(_semanaTipoIcon(tasks[i].tipo),
+                                        size: 14, color: AppColors.secondary),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      tasks[i].materia,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 12,
+                                        color: AppColors.secondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
   }
 }
+
+class _UntimedTaskRow extends StatelessWidget {
+  const _UntimedTaskRow({
+    required this.task,
+    required this.onTap,
+    required this.onToggle,
+  });
+
+  final TaskItem task;
+  final VoidCallback onTap;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceLowest,
+            borderRadius: BorderRadius.circular(AppRadius.xl),
+            border: Border.all(color: AppColors.outlineSubtle),
+            boxShadow: AppShadow.sm,
+          ),
+          child: Row(
+            children: [
+              _CheckCircle(done: task.completada, onTap: onToggle, small: true),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  task.titulo,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.onSurface,
+                    decoration: task.completada
+                        ? TextDecoration.lineThrough
+                        : null,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _TaskChip(label: task.materia),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CheckCircle extends StatelessWidget {
+  const _CheckCircle({
+    required this.done,
+    required this.onTap,
+    this.small = false,
+  });
+
+  final bool done;
+  final VoidCallback onTap;
+  final bool small;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = small ? 22.0 : 24.0;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: done ? AppColors.mint : Colors.transparent,
+          border: Border.all(
+            color: done ? AppColors.mint : AppColors.outlineVariant,
+            width: 1.6,
+          ),
+        ),
+        child: done
+            ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+            : null,
+      ),
+    );
+  }
+}
+
+// ─── Estado vacío del día ───────────────────────────────────────────────
+
+class _DayEmptyState extends StatelessWidget {
+  const _DayEmptyState({required this.day, required this.onAddTask});
+
+  final DateTime day;
+  final VoidCallback? onAddTask;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(32, 0, 32, 120),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 128,
+                  height: 128,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceContainer,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.outlineSubtle),
+                    boxShadow: AppShadow.md,
+                  ),
+                  child: const Icon(Icons.local_cafe_rounded,
+                      size: 56, color: AppColors.primary),
+                ),
+                Positioned(
+                  top: -4,
+                  right: -4,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceLowest,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.outlineSubtle),
+                      boxShadow: AppShadow.sm,
+                    ),
+                    child: const Icon(Icons.spa_rounded,
+                        size: 16, color: AppColors.accent),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
+            Text(
+              '${_weekdayLong(day.weekday)} ${day.day} ${_monthName(day.month).substring(0, 3)}',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.6,
+                color: AppColors.onSurface,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Día libre de tareas agendadas. ¿Quieres adelantar algo de la próxima semana?',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.5,
+                color: AppColors.secondary,
+              ),
+            ),
+            const SizedBox(height: 28),
+            if (onAddTask != null)
+              SizedBox(
+                width: double.infinity,
+                child: PrimaryButton(
+                  label: 'Agregar tarea',
+                  icon: Icons.add_rounded,
+                  onTap: onAddTask,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Botones / chips compartidos del header
+// ─────────────────────────────────────────────────────────────────────────
 
 class _RoundIcon extends StatelessWidget {
   const _RoundIcon({required this.icon, required this.onTap});
@@ -308,73 +1558,14 @@ class _RoundIcon extends StatelessWidget {
   }
 }
 
-class _ModeSegment extends StatelessWidget {
-  const _ModeSegment({required this.active, required this.onChanged});
-  final CalendarMode active;
-  final ValueChanged<CalendarMode> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceContainer,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          _seg(CalendarMode.month, 'Mes'),
-          _seg(CalendarMode.week, 'Semana'),
-          _seg(CalendarMode.day, 'Día'),
-        ],
-      ),
-    );
-  }
-
-  Expanded _seg(CalendarMode m, String label) {
-    final isActive = m == active;
-    return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => onChanged(m),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          height: 38,
-          decoration: BoxDecoration(
-            color: isActive ? AppColors.surfaceLowest : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: isActive
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 13,
-                color: isActive
-                    ? AppColors.onSurface
-                    : AppColors.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TodayPill extends StatelessWidget {
-  const _TodayPill({required this.active, required this.onTap});
-  final bool active;
+class _PillButton extends StatelessWidget {
+  const _PillButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
   final VoidCallback onTap;
 
   @override
@@ -384,36 +1575,23 @@ class _TodayPill extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(100),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: active
-                ? AppColors.primary.withValues(alpha: 0.08)
-                : AppColors.surfaceContainer,
+            color: AppColors.surfaceContainer,
             borderRadius: BorderRadius.circular(100),
-            border: Border.all(
-              color: active
-                  ? AppColors.primary.withValues(alpha: 0.45)
-                  : Colors.transparent,
-              width: 1.4,
-            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.today_rounded,
-                size: 16,
-                color: active ? AppColors.primary : AppColors.onSurfaceVariant,
-              ),
+              Icon(icon, size: 16, color: AppColors.onSurface),
               const SizedBox(width: 6),
               Text(
-                'Hoy',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
+                label,
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
                   fontSize: 13,
-                  color: active ? AppColors.primary : AppColors.onSurface,
+                  color: AppColors.onSurface,
                 ),
               ),
             ],
@@ -424,8 +1602,8 @@ class _TodayPill extends StatelessWidget {
   }
 }
 
-class _MiniStat extends StatelessWidget {
-  const _MiniStat({
+class _MiniBadge extends StatelessWidget {
+  const _MiniBadge({
     required this.icon,
     required this.label,
     required this.color,
@@ -449,9 +1627,9 @@ class _MiniStat extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: TextStyle(
+            style: GoogleFonts.inter(
               fontSize: 12,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               color: color,
             ),
           ),
@@ -461,9 +1639,120 @@ class _MiniStat extends StatelessWidget {
   }
 }
 
+String _weekdayLong(int weekday) {
+  const names = [
+    'Lunes',
+    'Martes',
+    'Miércoles',
+    'Jueves',
+    'Viernes',
+    'Sábado',
+    'Domingo',
+  ];
+  return names[weekday - 1];
+}
+
 // ─────────────────────────────────────────────────────────────────────────
-// Month grid (premium)
+// Selector de mes (modal) — reutilizado como bottom sheet
 // ─────────────────────────────────────────────────────────────────────────
+
+class _MonthPickerSheet extends StatefulWidget {
+  const _MonthPickerSheet({
+    required this.initialMonth,
+    required this.byDay,
+    required this.onPick,
+  });
+  final DateTime initialMonth;
+  final Map<int, List<TaskItem>> byDay;
+  final ValueChanged<DateTime> onPick;
+
+  @override
+  State<_MonthPickerSheet> createState() => _MonthPickerSheetState();
+}
+
+class _MonthPickerSheetState extends State<_MonthPickerSheet> {
+  late DateTime _month = DateTime(
+    widget.initialMonth.year,
+    widget.initialMonth.month,
+  );
+
+  void _shift(int amount) =>
+      setState(() => _month = DateTime(_month.year, _month.month + amount));
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.66,
+      ),
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceLowest,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.outlineVariant,
+              borderRadius: BorderRadius.circular(100),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Seleccionar semana',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+                _RoundIcon(
+                  icon: Icons.chevron_left_rounded,
+                  onTap: () => _shift(-1),
+                ),
+                const SizedBox(width: 8),
+                _RoundIcon(
+                  icon: Icons.chevron_right_rounded,
+                  onTap: () => _shift(1),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${_monthName(_month.month)} ${_month.year}',
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.secondary,
+                ),
+              ),
+            ),
+          ),
+          Flexible(
+            child: _MonthGrid(
+              focusedDay: _month,
+              byDay: widget.byDay,
+              onDaySelected: widget.onPick,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _MonthGrid extends StatelessWidget {
   const _MonthGrid({
@@ -487,7 +1776,7 @@ class _MonthGrid extends StatelessWidget {
     final today = DateTime.now();
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
       physics: const BouncingScrollPhysics(),
       children: [
         Padding(
@@ -543,11 +1832,11 @@ class _DayHeader extends StatelessWidget {
       child: Center(
         child: Text(
           label,
-          style: const TextStyle(
+          style: GoogleFonts.inter(
             fontSize: 10,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             letterSpacing: 1,
-            color: AppColors.onSurfaceVariant,
+            color: AppColors.secondary,
           ),
         ),
       ),
@@ -602,26 +1891,19 @@ class _MonthCell extends StatelessWidget {
                   height: 28,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: isToday
-                        ? const LinearGradient(
-                            colors: [AppColors.primary, AppColors.indigo],
-                          )
-                        : null,
-                    color: isToday ? null : Colors.transparent,
+                    color: isToday ? AppColors.primary : Colors.transparent,
                   ),
                   child: Center(
                     child: Text(
                       '${day.day}',
-                      style: TextStyle(
+                      style: GoogleFonts.inter(
                         fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: isToday
                             ? Colors.white
                             : (inMonth
-                                  ? AppColors.onSurface
-                                  : AppColors.onSurfaceVariant.withValues(
-                                      alpha: 0.6,
-                                    )),
+                                ? AppColors.onSurface
+                                : AppColors.secondary.withValues(alpha: 0.6)),
                       ),
                     ),
                   ),
@@ -647,10 +1929,10 @@ class _MonthCell extends StatelessWidget {
                       const SizedBox(width: 4),
                       Text(
                         '+$extra',
-                        style: const TextStyle(
+                        style: GoogleFonts.inter(
                           fontSize: 9,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.onSurfaceVariant,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.secondary,
                         ),
                       ),
                     ],
@@ -658,774 +1940,6 @@ class _MonthCell extends StatelessWidget {
                 ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Week timeline — vertical scroll, 7 columnas
-// ─────────────────────────────────────────────────────────────────────────
-
-class _WeekTimeline extends StatelessWidget {
-  const _WeekTimeline({
-    required this.focusedDay,
-    required this.byDay,
-    required this.firstHour,
-    required this.hourCount,
-    required this.onTaskTap,
-    required this.onDayTap,
-  });
-
-  final DateTime focusedDay;
-  final Map<int, List<TaskItem>> byDay;
-  final int firstHour;
-  final int hourCount;
-  final ValueChanged<TaskItem> onTaskTap;
-  final ValueChanged<DateTime> onDayTap;
-
-  static const double _hourHeight = 64;
-  static const double _gutterWidth = 44;
-
-  int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
-
-  @override
-  Widget build(BuildContext context) {
-    final monday = focusedDay.subtract(Duration(days: focusedDay.weekday - 1));
-    final days = List.generate(7, (i) => monday.add(Duration(days: i)));
-    final today = DateTime.now();
-
-    return Column(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: AppColors.background,
-            border: Border(
-              bottom: BorderSide(
-                color: AppColors.outlineVariant.withValues(alpha: 0.4),
-              ),
-            ),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 4, 12, 8),
-          child: Row(
-            children: [
-              const SizedBox(width: _gutterWidth),
-              for (final d in days)
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => onDayTap(d),
-                    behavior: HitTestBehavior.opaque,
-                    child: _WeekDayHeader(
-                      day: d,
-                      isToday: _sameDay(d, today),
-                      isFocused: _sameDay(d, focusedDay),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 8, 12, 110),
-            child: SizedBox(
-              height: hourCount * _hourHeight,
-              child: Stack(
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        width: _gutterWidth,
-                        child: Column(
-                          children: [
-                            for (var i = 0; i < hourCount; i++)
-                              SizedBox(
-                                height: _hourHeight,
-                                child: _HourLabel(hour: firstHour + i),
-                              ),
-                          ],
-                        ),
-                      ),
-                      for (final d in days)
-                        Expanded(
-                          child: _WeekDayColumn(
-                            day: d,
-                            firstHour: firstHour,
-                            hourCount: hourCount,
-                            hourHeight: _hourHeight,
-                            tasks: byDay[_dayKey(d)] ?? const [],
-                            onTaskTap: onTaskTap,
-                            isToday: _sameDay(d, today),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _WeekDayHeader extends StatelessWidget {
-  const _WeekDayHeader({
-    required this.day,
-    required this.isToday,
-    required this.isFocused,
-  });
-
-  final DateTime day;
-  final bool isToday;
-  final bool isFocused;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          _shortDay(day.weekday),
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 0.8,
-            color: isToday ? AppColors.primary : AppColors.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 4),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: 30,
-          height: 30,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: isToday
-                ? const LinearGradient(
-                    colors: [AppColors.primary, AppColors.indigo],
-                  )
-                : null,
-            color: isFocused && !isToday
-                ? AppColors.surfaceContainer
-                : Colors.transparent,
-          ),
-          child: Center(
-            child: Text(
-              '${day.day}',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: isToday ? Colors.white : AppColors.onSurface,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _WeekDayColumn extends StatelessWidget {
-  const _WeekDayColumn({
-    required this.day,
-    required this.firstHour,
-    required this.hourCount,
-    required this.hourHeight,
-    required this.tasks,
-    required this.onTaskTap,
-    required this.isToday,
-  });
-
-  final DateTime day;
-  final int firstHour;
-  final int hourCount;
-  final double hourHeight;
-  final List<TaskItem> tasks;
-  final ValueChanged<TaskItem> onTaskTap;
-  final bool isToday;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 2),
-      decoration: BoxDecoration(
-        color: isToday
-            ? AppColors.primary.withValues(alpha: 0.04)
-            : AppColors.surfaceLowest,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.35),
-        ),
-      ),
-      child: Stack(
-        children: [
-          Column(
-            children: [
-              for (var i = 0; i < hourCount; i++)
-                SizedBox(
-                  height: hourHeight,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color: AppColors.outlineVariant.withValues(
-                            alpha: 0.2,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          for (final task in tasks)
-            if (task.hora != 'Sin hora')
-              Positioned(
-                left: 3,
-                right: 3,
-                top:
-                    ((_taskMinutes(task) - firstHour * 60) / 60) * hourHeight,
-                height: hourHeight - 4,
-                child: _WeekTaskBlock(
-                  task: task,
-                  onTap: () => onTaskTap(task),
-                ),
-              ),
-          if (isToday) _NowIndicator(firstHour: firstHour, height: hourHeight),
-        ],
-      ),
-    );
-  }
-}
-
-class _WeekTaskBlock extends StatelessWidget {
-  const _WeekTaskBlock({required this.task, required this.onTap});
-  final TaskItem task;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = priorityColor(task.prioridad);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(8),
-              border: Border(
-                left: BorderSide(color: accent, width: 3),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  task.titulo,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.onSurface,
-                    height: 1.15,
-                  ),
-                ),
-                if (task.hora != 'Sin hora') ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    task.hora,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: accent,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Day timeline — vertical, premium
-// ─────────────────────────────────────────────────────────────────────────
-
-class _DayTimeline extends StatelessWidget {
-  const _DayTimeline({
-    required this.day,
-    required this.dayTasks,
-    required this.hourBuckets,
-    required this.firstHour,
-    required this.hourCount,
-    required this.onTaskTap,
-    required this.onToggleTask,
-  });
-
-  final DateTime day;
-  final List<TaskItem> dayTasks;
-  final Map<int, List<TaskItem>> hourBuckets;
-  final int firstHour;
-  final int hourCount;
-  final ValueChanged<TaskItem> onTaskTap;
-  final ValueChanged<String> onToggleTask;
-
-  static const double _hourHeight = 80;
-  static const double _gutterWidth = 56;
-
-  @override
-  Widget build(BuildContext context) {
-    final untimed = dayTasks
-        .where((t) => t.hora == 'Sin hora')
-        .toList(growable: false);
-    final isToday = _sameDay(day, DateTime.now());
-
-    if (dayTasks.isEmpty) {
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-        children: const [
-          EmptyStateCard(
-            icon: Icons.event_available,
-            title: 'No hay tareas este día',
-            body:
-                'Agrega tareas con fecha y hora para verlas en la línea de tiempo.',
-          ),
-        ],
-      );
-    }
-
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-      physics: const BouncingScrollPhysics(),
-      children: [
-        if (untimed.isNotEmpty) ...[
-          const _SectionHead(label: 'Sin horario', icon: Icons.label_outline),
-          const SizedBox(height: 8),
-          for (final t in untimed)
-            _UntimedTaskTile(
-              task: t,
-              onTap: () => onTaskTap(t),
-              onToggle: () => onToggleTask(t.id),
-            ),
-          const SizedBox(height: 18),
-        ],
-        const _SectionHead(
-          label: 'Línea de tiempo',
-          icon: Icons.access_time_rounded,
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          height: hourCount * _hourHeight + 8,
-          child: Stack(
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    width: _gutterWidth,
-                    child: Column(
-                      children: [
-                        for (var i = 0; i < hourCount; i++)
-                          SizedBox(
-                            height: _hourHeight,
-                            child: _HourLabel(hour: firstHour + i, large: true),
-                          ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        Column(
-                          children: [
-                            for (var i = 0; i < hourCount; i++)
-                              SizedBox(
-                                height: _hourHeight,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    border: Border(
-                                      top: BorderSide(
-                                        color: AppColors.outlineVariant
-                                            .withValues(alpha: 0.4),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        for (final entry in hourBuckets.entries)
-                          for (var i = 0; i < entry.value.length; i++)
-                            Positioned(
-                              left: 4,
-                              right: 4,
-                              top:
-                                  ((_taskMinutes(entry.value[i]) -
-                                              firstHour * 60) /
-                                          60) *
-                                      _hourHeight +
-                                  (i * 4),
-                              child: _DayTaskBlock(
-                                task: entry.value[i],
-                                onTap: () => onTaskTap(entry.value[i]),
-                                onToggle: () =>
-                                    onToggleTask(entry.value[i].id),
-                              ),
-                            ),
-                        if (isToday)
-                          _NowIndicator(
-                            firstHour: firstHour,
-                            height: _hourHeight,
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SectionHead extends StatelessWidget {
-  const _SectionHead({required this.label, required this.icon});
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 26,
-          height: 26,
-          decoration: BoxDecoration(
-            color: AppColors.surfaceContainer,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, size: 14, color: AppColors.primary),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: AppColors.onSurface,
-            letterSpacing: 0.2,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HourLabel extends StatelessWidget {
-  const _HourLabel({required this.hour, this.large = false});
-  final int hour;
-  final bool large;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = hour == 24 ? '00:00' : '${hour.toString().padLeft(2, '0')}:00';
-    return Padding(
-      padding: const EdgeInsets.only(right: 8, top: 2),
-      child: Align(
-        alignment: Alignment.topRight,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: large ? 12 : 11,
-            fontWeight: FontWeight.w700,
-            color: AppColors.onSurfaceVariant,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DayTaskBlock extends StatelessWidget {
-  const _DayTaskBlock({
-    required this.task,
-    required this.onTap,
-    required this.onToggle,
-  });
-
-  final TaskItem task;
-  final VoidCallback onTap;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = priorityColor(task.prioridad);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceLowest,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: accent.withValues(alpha: 0.35),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: accent.withValues(alpha: 0.08),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 4,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: accent,
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      task.titulo,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.onSurface,
-                        decoration: task.completada
-                            ? TextDecoration.lineThrough
-                            : null,
-                        decorationColor: AppColors.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Text(
-                          task.hora,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: accent,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          width: 3,
-                          height: 3,
-                          decoration: const BoxDecoration(
-                            color: AppColors.outlineVariant,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            task.materia,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              GestureDetector(
-                onTap: onToggle,
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: task.completada
-                        ? AppColors.mint
-                        : Colors.transparent,
-                    border: Border.all(
-                      color: task.completada
-                          ? AppColors.mint
-                          : AppColors.outlineVariant,
-                      width: 1.6,
-                    ),
-                  ),
-                  child: task.completada
-                      ? const Icon(
-                          Icons.check_rounded,
-                          size: 16,
-                          color: Colors.white,
-                        )
-                      : null,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _UntimedTaskTile extends StatelessWidget {
-  const _UntimedTaskTile({
-    required this.task,
-    required this.onTap,
-    required this.onToggle,
-  });
-
-  final TaskItem task;
-  final VoidCallback onTap;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = priorityColor(task.prioridad);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceLowest,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: AppColors.outlineVariant.withValues(alpha: 0.5),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 4,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: accent,
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    task.titulo,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.onSurface,
-                      decoration: task.completada
-                          ? TextDecoration.lineThrough
-                          : null,
-                    ),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: onToggle,
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: task.completada
-                          ? AppColors.mint
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: task.completada
-                            ? AppColors.mint
-                            : AppColors.outlineVariant,
-                        width: 1.4,
-                      ),
-                    ),
-                    child: task.completada
-                        ? const Icon(
-                            Icons.check_rounded,
-                            size: 14,
-                            color: Colors.white,
-                          )
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NowIndicator extends StatelessWidget {
-  const _NowIndicator({required this.firstHour, required this.height});
-  final int firstHour;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final minutes = now.hour * 60 + now.minute;
-    final offset = ((minutes - firstHour * 60) / 60) * height;
-    if (offset < 0) return const SizedBox.shrink();
-    return Positioned(
-      left: 0,
-      right: 0,
-      top: offset,
-      child: IgnorePointer(
-        child: Row(
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              margin: const EdgeInsets.only(left: 0),
-              decoration: const BoxDecoration(
-                color: AppColors.error,
-                shape: BoxShape.circle,
-              ),
-            ),
-            Expanded(
-              child: Container(
-                height: 1.5,
-                color: AppColors.error,
-              ),
-            ),
-          ],
         ),
       ),
     );

@@ -766,6 +766,7 @@ class _ThinkLessAppState extends State<ThinkLessApp> {
           onOpenTask: _openTask,
           onToggleTask: _toggleTask,
           noMolestar: _noMolestar,
+          onAddTask: _showAddSheet,
         ),
       ),
       AppView.focus => ShellScreen(
@@ -1062,9 +1063,9 @@ class ShellScreen extends StatelessWidget {
             label: 'Tareas',
           ),
           NavigationDestination(
-            icon: Icon(Icons.calendar_today_outlined),
-            selectedIcon: Icon(Icons.calendar_today),
-            label: 'Calendario',
+            icon: Icon(Icons.view_week_outlined),
+            selectedIcon: Icon(Icons.view_week_rounded),
+            label: 'Semana',
           ),
           NavigationDestination(
             icon: Icon(Icons.center_focus_strong_outlined),
@@ -2262,53 +2263,93 @@ class MatrixScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final source = tasks.isEmpty ? _sampleMatrixTasks() : tasks;
+    final hacer = source
+        .where((t) => t.prioridad == 'urgente' || t.prioridad == 'alta')
+        .toList();
+    final agendar = source.where((t) => t.prioridad == 'media').toList();
+    final delegar = source.where((t) => t.prioridad == 'baja').toList();
+    final extent = MediaQuery.sizeOf(context).width > 720 ? 220.0 : 196.0;
+
     return AppScaffold(
       title: 'Matriz Eisenhower',
-      body: GridView(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: MediaQuery.sizeOf(context).width > 720 ? 2 : 1,
-          mainAxisExtent: 300,
-          crossAxisSpacing: 20,
-          mainAxisSpacing: 20,
-        ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Quadrant(
-            title: 'Hacer Ya',
-            subtitle: 'Urgente & Importante',
-            color: AppColors.pink,
-            tasks: source
-                .where(
-                  (task) =>
-                      task.prioridad == 'urgente' || task.prioridad == 'alta',
-                )
-                .toList(),
-            onOpenTask: onOpenTask,
-            onToggleTask: onToggleTask,
+          // ── Encabezado estratégico ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Decide con claridad',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.6,
+                    color: AppColors.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Prioriza tus tareas por urgencia e importancia.',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: AppColors.secondary,
+                  ),
+                ),
+              ],
+            ),
           ),
-          Quadrant(
-            title: 'Agendar',
-            subtitle: 'Importante, No Urgente',
-            color: AppColors.yellow,
-            tasks: source.where((task) => task.prioridad == 'media').toList(),
-            onOpenTask: onOpenTask,
-            onToggleTask: onToggleTask,
-          ),
-          Quadrant(
-            title: 'Delegar',
-            subtitle: 'Urgente, No Importante',
-            color: AppColors.blue,
-            tasks: const [],
-            onOpenTask: onOpenTask,
-            onToggleTask: onToggleTask,
-          ),
-          Quadrant(
-            title: 'Eliminar',
-            subtitle: 'Ni Urgente, Ni Importante',
-            color: AppColors.mint,
-            tasks: source.where((task) => task.prioridad == 'baja').toList(),
-            onOpenTask: onOpenTask,
-            onToggleTask: onToggleTask,
+          Expanded(
+            child: GridView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 150),
+              physics: const BouncingScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisExtent: extent,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              children: [
+                Quadrant(
+                  title: 'Hacer ya',
+                  subtitle: 'Urgente e importante',
+                  color: AppColors.pink,
+                  icon: Icons.error_outline_rounded,
+                  tasks: hacer,
+                  onOpenTask: onOpenTask,
+                  onToggleTask: onToggleTask,
+                ),
+                Quadrant(
+                  title: 'Agendar',
+                  subtitle: 'Importante, no urgente',
+                  color: AppColors.yellow,
+                  icon: Icons.event_outlined,
+                  tasks: agendar,
+                  onOpenTask: onOpenTask,
+                  onToggleTask: onToggleTask,
+                ),
+                Quadrant(
+                  title: 'Delegar',
+                  subtitle: 'Urgente, no importante',
+                  color: AppColors.blue,
+                  icon: Icons.groups_outlined,
+                  tasks: const [],
+                  onOpenTask: onOpenTask,
+                  onToggleTask: onToggleTask,
+                ),
+                Quadrant(
+                  title: 'Eliminar',
+                  subtitle: 'Ni urgente, ni importante',
+                  color: AppColors.mint,
+                  icon: Icons.delete_outline_rounded,
+                  tasks: delegar,
+                  onOpenTask: onOpenTask,
+                  onToggleTask: onToggleTask,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -2745,106 +2786,412 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
-      title: 'ThinkLess',
+      title: 'Perfil',
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 110),
         children: [
-          Column(
-            children: [
-              Container(
-                width: 96,
-                height: 96,
-                padding: const EdgeInsets.all(2.5),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppColors.primary, AppColors.indigo, AppColors.blue],
-                  ),
-                  boxShadow: AppShadow.brand(opacity: 0.30),
+          // ── Cabecera: avatar + nombre + modo enfoque ──────────────────────
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceLowest,
+              borderRadius: BorderRadius.circular(AppRadius.xl),
+              border: Border.all(color: AppColors.outlineSubtle),
+              boxShadow: AppShadow.sm,
+            ),
+            child: Row(
+              children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [AppColors.primary, AppColors.violetLight],
+                        ),
+                        boxShadow: AppShadow.brand(opacity: 0.22),
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.person_rounded, size: 34, color: Colors.white),
+                      ),
+                    ),
+                    Positioned(
+                      right: -2, bottom: -2,
+                      child: Container(
+                        width: 22, height: 22,
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceLowest,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.outlineSubtle),
+                        ),
+                        child: const Icon(Icons.edit_rounded, size: 12, color: AppColors.primary),
+                      ),
+                    ),
+                  ],
                 ),
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.surface,
-                    border: Border.all(color: AppColors.surfaceContainer, width: 2),
+                const SizedBox(width: AppSpacing.lg),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Alex Doe',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.onSurface,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Estudiante · 3er año',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: AppColors.secondary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.mintSoft,
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 6, height: 6,
+                              decoration: const BoxDecoration(
+                                color: AppColors.mint, shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'En modo enfoque',
+                              style: GoogleFonts.inter(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.mint,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  child: const Center(
-                    child: Icon(Icons.person_rounded, size: 44, color: AppColors.violetLight),
-                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          // ── Stats ──────────────────────────────────────────────────────────
+          Row(
+            children: const [
+              Expanded(
+                child: _ProfileStatCard(
+                  icon: Icons.task_alt_rounded,
+                  value: '42',
+                  label: 'Tareas completadas',
+                  accent: AppColors.primary,
                 ),
               ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                'Alex',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'alex.student@academia.edu',
-                style: GoogleFonts.inter(
-                  color: AppColors.onSurfaceVariant,
-                  fontSize: 13,
+              SizedBox(width: AppSpacing.lg),
+              Expanded(
+                child: _ProfileStatCard(
+                  icon: Icons.timer_outlined,
+                  value: '18h',
+                  label: 'Tiempo de enfoque',
+                  accent: AppColors.accent,
                 ),
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.lg),
+          // ── Meta semanal ────────────────────────────────────────────────────
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(AppRadius.xl),
+              boxShadow: AppShadow.brand(opacity: 0.20),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Meta semanal',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '85% completado',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: Colors.white.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  width: 56, height: 56,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        width: 56, height: 56,
+                        child: CircularProgressIndicator(
+                          value: 0.85,
+                          strokeWidth: 5,
+                          backgroundColor: Colors.white.withValues(alpha: 0.25),
+                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      ),
+                      Text(
+                        '85%',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 28),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              SettingTile(
-                icon: Icons.notifications,
-                title: 'Notificaciones',
-                subtitle: 'Activas',
-                onTap: () => onNavigate(AppView.alerts),
+          // ── Ajustes ─────────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: AppSpacing.md),
+            child: Text(
+              'AJUSTES',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: AppColors.secondary,
+                letterSpacing: 1.2,
               ),
-              SettingTile(
-                icon: Icons.palette,
-                title: 'Apariencia',
-                subtitle: 'Modo Claro',
-                onTap: () => _toast(context, 'Apariencia simulada.'),
-              ),
-              SettingTile(
-                icon: Icons.language,
-                title: 'Idioma',
-                subtitle: 'Español',
-                onTap: () => _toast(context, 'Idioma configurado en español.'),
-              ),
-              SettingTile(
-                icon: Icons.workspace_premium,
-                title: 'Premium',
-                subtitle: 'Gestionar suscripcion',
-                premium: true,
-                onTap: () => _showPremiumModal(context),
-              ),
-              SettingTile(
-                icon: Icons.help_outline,
-                title: 'Ayuda y Soporte',
-                subtitle: 'Preguntas frecuentes y contacto',
-                wide: true,
-                onTap: () => _toast(context, 'Soporte simulado.'),
-              ),
-            ],
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surfaceLowest,
+              borderRadius: BorderRadius.circular(AppRadius.xl),
+              border: Border.all(color: AppColors.outlineSubtle),
+              boxShadow: AppShadow.sm,
+            ),
+            child: Column(
+              children: [
+                _ProfileSettingRow(
+                  icon: Icons.notifications_outlined,
+                  title: 'Notificaciones',
+                  value: 'Activas',
+                  onTap: () => onNavigate(AppView.alerts),
+                ),
+                const _ProfileRowDivider(),
+                _ProfileSettingRow(
+                  icon: Icons.palette_outlined,
+                  title: 'Apariencia',
+                  value: 'Claro',
+                  onTap: () => _toast(context, 'Apariencia simulada.'),
+                ),
+                const _ProfileRowDivider(),
+                _ProfileSettingRow(
+                  icon: Icons.language_rounded,
+                  title: 'Idioma',
+                  value: 'Español',
+                  onTap: () => _toast(context, 'Idioma configurado en español.'),
+                ),
+                const _ProfileRowDivider(),
+                _ProfileSettingRow(
+                  icon: Icons.workspace_premium_outlined,
+                  title: 'Premium',
+                  value: 'Gestionar',
+                  highlight: true,
+                  onTap: () => _showPremiumModal(context),
+                ),
+                const _ProfileRowDivider(),
+                _ProfileSettingRow(
+                  icon: Icons.help_outline_rounded,
+                  title: 'Ayuda y soporte',
+                  onTap: () => _toast(context, 'Soporte simulado.'),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 28),
           Center(
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.errorContainer,
-                foregroundColor: AppColors.onErrorContainer,
-              ),
+            child: TextButton.icon(
+              style: TextButton.styleFrom(foregroundColor: AppColors.accent),
               onPressed: () => _toast(context, 'Sesion cerrada simulada.'),
-              icon: const Icon(Icons.logout),
-              label: const Text('Cerrar sesion'),
+              icon: const Icon(Icons.logout_rounded, size: 18),
+              label: Text(
+                'Cerrar sesión',
+                style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class _ProfileStatCard extends StatelessWidget {
+  const _ProfileStatCard({
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.accent,
+  });
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLowest,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: AppColors.outlineSubtle),
+        boxShadow: AppShadow.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 20, color: accent),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            value,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              color: AppColors.onSurface,
+              letterSpacing: -0.6,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              color: AppColors.secondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileSettingRow extends StatelessWidget {
+  const _ProfileSettingRow({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.value,
+    this.highlight = false,
+  });
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+  final String? value;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: AppSpacing.sm + 2,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(
+                  color: highlight
+                      ? AppColors.primary.withValues(alpha: 0.12)
+                      : AppColors.surfaceContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  size: 19,
+                  color: highlight ? AppColors.primary : AppColors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: highlight ? AppColors.primary : AppColors.onSurface,
+                  ),
+                ),
+              ),
+              if (value != null) ...[
+                Text(
+                  value!,
+                  style: GoogleFonts.inter(
+                    fontSize: 12.5,
+                    color: AppColors.secondary,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.secondary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileRowDivider extends StatelessWidget {
+  const _ProfileRowDivider();
+  @override
+  Widget build(BuildContext context) => const Divider(
+    height: 0.5,
+    thickness: 0.5,
+    color: AppColors.outlineSubtle,
+    indent: 62,
+    endIndent: AppSpacing.lg,
+  );
 }
 
 class AppScaffold extends StatelessWidget {
@@ -3534,11 +3881,13 @@ class Quadrant extends StatelessWidget {
     required this.tasks,
     required this.onOpenTask,
     required this.onToggleTask,
+    this.icon,
     super.key,
   });
   final String title;
   final String subtitle;
   final Color color;
+  final IconData? icon;
   final List<TaskItem> tasks;
   final ValueChanged<TaskItem> onOpenTask;
   final ValueChanged<String> onToggleTask;
@@ -3547,50 +3896,71 @@ class Quadrant extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surfaceContainer,
+        color: AppColors.surfaceLowest,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.outlineVariant, width: 0.6),
+        border: Border.all(color: AppColors.outlineSubtle),
+        boxShadow: AppShadow.sm,
       ),
-      padding: const EdgeInsets.all(AppSpacing.lg),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                width: 8, height: 8,
+                width: 26, height: 26,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: color,
-                  boxShadow: [BoxShadow(color: color.withValues(alpha: 0.5), blurRadius: 6)],
+                  color: color.withValues(alpha: 0.12),
                 ),
+                child: Icon(icon ?? Icons.circle, color: color, size: 15),
               ),
-              const SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.plusJakartaSans(
                     fontWeight: FontWeight.w700,
-                    fontSize: 15,
+                    fontSize: 14,
                     color: AppColors.onSurface,
                     letterSpacing: -0.2,
                   ),
                 ),
               ),
+              if (tasks.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: Text(
+                    '${tasks.length}',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 1),
           Text(
             subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.inter(
-              fontSize: 11,
+              fontSize: 10.5,
               color: AppColors.secondary,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.2,
             ),
           ),
-          const SizedBox(height: AppSpacing.md),
-          const Divider(height: 1),
+          const SizedBox(height: AppSpacing.sm),
+          Divider(height: 1, color: AppColors.outlineSubtle),
           const SizedBox(height: AppSpacing.sm),
           Expanded(
             child: tasks.isEmpty
@@ -3598,41 +3968,63 @@ class Quadrant extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          width: 36, height: 36,
-                          decoration: BoxDecoration(
-                            color: AppColors.surfaceHigh,
-                            borderRadius: BorderRadius.circular(AppRadius.sm),
-                          ),
-                          child: const Icon(Icons.inbox_rounded, color: AppColors.secondary, size: 18),
+                        Icon(
+                          Icons.check_circle_outline_rounded,
+                          size: 18,
+                          color: AppColors.outlineVariant,
                         ),
-                        const SizedBox(height: AppSpacing.sm),
+                        const SizedBox(height: 4),
                         Text(
                           'Sin tareas',
-                          style: GoogleFonts.inter(color: AppColors.secondary, fontSize: 12),
+                          style: GoogleFonts.inter(
+                            color: AppColors.secondary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
                   )
                 : ListView.separated(
                     padding: EdgeInsets.zero,
-                    itemCount: tasks.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 4),
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: tasks.length > 3 ? 4 : tasks.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 6),
                     itemBuilder: (_, i) {
+                      if (tasks.length > 3 && i == 3) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 2, left: 2),
+                          child: Text(
+                            '+${tasks.length - 3} más',
+                            style: GoogleFonts.inter(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: color,
+                            ),
+                          ),
+                        );
+                      }
                       final task = tasks[i];
                       return Material(
-                        color: Colors.transparent,
+                        color: AppColors.surfaceWarm,
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                         child: InkWell(
                           onTap: () => onOpenTask(task),
                           borderRadius: BorderRadius.circular(AppRadius.sm),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
+                              border: Border(
+                                left: BorderSide(color: color, width: 3),
+                              ),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 9),
                             child: Row(
                               children: [
                                 GestureDetector(
                                   onTap: () => onToggleTask(task.id),
                                   child: Container(
-                                    width: 18, height: 18,
+                                    width: 16, height: 16,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       color: task.completada ? AppColors.mint : Colors.transparent,
@@ -3646,31 +4038,20 @@ class Quadrant extends StatelessWidget {
                                         : null,
                                   ),
                                 ),
-                                const SizedBox(width: AppSpacing.sm),
+                                const SizedBox(width: 8),
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        task.titulo,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.onSurface,
-                                          decoration: task.completada ? TextDecoration.lineThrough : null,
-                                          decorationColor: AppColors.secondary,
-                                        ),
-                                      ),
-                                      Text(
-                                        task.fecha,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 11,
-                                          color: AppColors.secondary,
-                                        ),
-                                      ),
-                                    ],
+                                  child: Text(
+                                    task.titulo,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12.5,
+                                      height: 1.2,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.onSurface,
+                                      decoration: task.completada ? TextDecoration.lineThrough : null,
+                                      decorationColor: AppColors.secondary,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -4558,8 +4939,6 @@ DateTime _computeTaskDate(TaskItem task) {
 
 bool _sameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
-
-int _taskHour(TaskItem task) => _taskMinutes(task) ~/ 60;
 
 int _taskMinutes(TaskItem task) {
   final cached = _taskMinutesCache[task];
